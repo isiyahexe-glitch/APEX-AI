@@ -186,4 +186,35 @@ if 'scan_data' in st.session_state and not st.session_state['scan_data'].empty:
         
         with col_fr1:
             st.markdown("#### 🚀 Highest Positive Funding Rates (Long Squeeze Risk)")
-            high_fr = df_results.sort
+            high_fr = df_results.sort_values(by="Funding Rate (%)", ascending=False).head(3)
+            for idx, row in high_fr.iterrows():
+                st.markdown(f"• **{row['Asset']}**: `{row['Funding Rate (%)']}%` (Price: `${row['Price']}`)".replace("$$", "$"))
+                
+        with col_fr2:
+            st.markdown("#### 📉 Most Negative Funding Rates (Short Squeeze Risk)")
+            low_fr = df_results.sort_values(by="Funding Rate (%)", ascending=True).head(3)
+            for idx, row in low_fr.iterrows():
+                st.markdown(f"• **{row['Asset']}**: `{row['Funding Rate (%)']}%` (Price: `${row['Price']}`)".replace("$$", "$"))
+
+        st.markdown("---")
+        st.subheader("🎯 Detailed Chart, DOM, Liquidity Heatmap & Risk Calculator")
+        
+        asset_list = df_results['Asset'].tolist()
+        selected_asset = st.selectbox("Select Asset to view Analysis & Charts:", asset_list)
+        
+        if selected_asset:
+            asset_row = df_results[df_results['Asset'] == selected_asset].iloc[0]
+            raw_sym = asset_row['RawSymbol']
+            
+            # Layout Tabs for TradingView, DOM, and Heatmap
+            tab_chart, tab_dom, tab_heatmap = st.tabs(["📈 TradingView Live Chart", "📊 DOM / Depth Chart", "🔥 Liquidity Heatmap"])
+            
+            with tab_chart:
+                st.markdown(f"### Live Chart: `{selected_asset}`")
+                if selected_asset == "GOLD (XAU)":
+                    tv_symbol_str = "OANDA:XAUUSD"
+                else:
+                    tv_exchange = "BYBIT" if exchange_name == "BYBIT" else "MEXC"
+                    tv_symbol_str = f"{tv_exchange}:{selected_asset}USDT"
+                
+                tradingview_html = """
