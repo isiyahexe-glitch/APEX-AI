@@ -1,8 +1,3 @@
-මෙම දෝෂයට හේතුව **````python`** සහ අවසාන **`````** කියන Markdown ලකුණුත් එකතු කර කේතය කොපි වීමයි.
-
-පහත කේත කොටුවේ ඇති **Python කේතය පමණක්** (ඉහත සහ පහත ඇති ``` ලකුණු කොපි නොකර) සම්පූර්ණයෙන් කොපි කර ඔබේ `app.py` එකට දමන්න:
-
-```python
 import streamlit as st
 import ccxt
 import pandas as pd
@@ -42,7 +37,7 @@ exchange = get_exchange(exchange_name)
 @st.cache_data(ttl=600)
 def get_top_assets():
     try:
-        url = "[https://api.coingecko.com/api/v3/coins/markets](https://api.coingecko.com/api/v3/coins/markets)"
+        url = "https://api.coingecko.com/api/v3/coins/markets"
         params = {
             'vs_currency': 'usd',
             'order': 'market_cap_desc',
@@ -228,7 +223,7 @@ if 'scan_data' in st.session_state and not st.session_state['scan_data'].empty:
 <body style="margin:0;background-color:#131722;">
     <div class="tradingview-widget-container" style="height:500px;width:100%">
       <div id="tradingview_widget" style="height:100%;width:100%"></div>
-      <script type="text/javascript" src="[https://s3.tradingview.com/tv.js](https://s3.tradingview.com/tv.js)"></script>
+      <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
       <script type="text/javascript">
       new TradingView.widget(
       {
@@ -345,5 +340,3 @@ if 'scan_data' in st.session_state and not st.session_state['scan_data'].empty:
         st.warning("Scan data format error. Please click 'Run Master Scan' again.")
 else:
     st.info("👆 Type any asset in the search box above (e.g. `XAU`, `BTC`, `SOL`, `PEPE`) or click **'Run Master Scan (Scan ALL $300M+ Coins & Gold)'** to start scanning the entire market.")
-
-```
