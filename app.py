@@ -61,7 +61,7 @@ tradingview_html = f"""
           "VolumeProfile@tv-basicstudies"
         ],
         "container_id": "tradingview_widget"
-      }
+      }}
       );
       </script>
     </div>
