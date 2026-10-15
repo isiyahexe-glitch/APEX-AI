@@ -1,3 +1,7 @@
+මෙම දෝෂයට හේතුව **````python`** සහ අවසාන **`````** කියන Markdown ලකුණුත් එකතු කර කේතය කොපි වීමයි.
+
+පහත කේත කොටුවේ ඇති **Python කේතය පමණක්** (ඉහත සහ පහත ඇති ``` ලකුණු කොපි නොකර) සම්පූර්ණයෙන් කොපි කර ඔබේ `app.py` එකට දමන්න:
+
 ```python
 import streamlit as st
 import ccxt
@@ -38,7 +42,7 @@ exchange = get_exchange(exchange_name)
 @st.cache_data(ttl=600)
 def get_top_assets():
     try:
-        url = "https://api.coingecko.com/api/v3/coins/markets"
+        url = "[https://api.coingecko.com/api/v3/coins/markets](https://api.coingecko.com/api/v3/coins/markets)"
         params = {
             'vs_currency': 'usd',
             'order': 'market_cap_desc',
@@ -224,7 +228,7 @@ if 'scan_data' in st.session_state and not st.session_state['scan_data'].empty:
 <body style="margin:0;background-color:#131722;">
     <div class="tradingview-widget-container" style="height:500px;width:100%">
       <div id="tradingview_widget" style="height:100%;width:100%"></div>
-      <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+      <script type="text/javascript" src="[https://s3.tradingview.com/tv.js](https://s3.tradingview.com/tv.js)"></script>
       <script type="text/javascript">
       new TradingView.widget(
       {
@@ -317,7 +321,7 @@ if 'scan_data' in st.session_state and not st.session_state['scan_data'].empty:
                     st.warning("Market is in Neutral range. Wait for breakout of Liquidity Pools.")
                     
             with col_calc:
-                balance = st.number_input("Account Balance (USDT)", min_value=10.0, value=1000.0, step50.0) if False else st.number_input("Account Balance (USDT)", min_value=10.0, value=1000.0, step=50.0)
+                balance = st.number_input("Account Balance (USDT)", min_value=10.0, value=1000.0, step=50.0)
                 risk_pct = st.slider("Risk Tolerance (%)", min_value=0.5, max_value=5.0, value=1.0, step=0.5)
                 leverage = st.selectbox("Leverage (x)", [1, 2, 5, 10, 20, 50], index=3)
                 
