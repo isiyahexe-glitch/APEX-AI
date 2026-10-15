@@ -9,13 +9,13 @@ import streamlit.components.v1 as components
 
 # Page Configuration
 st.set_page_config(
-    page_title="AI Pro Crypto & Gold Terminal (Funding & DOM)",
-    page_icon="⚡",
+    page_title="AI Pro Crypto & Gold Terminal (All Coins Scan)",
+    page_icon="💎",
     layout="wide"
 )
 
-st.title("⚡ AI Pro Crypto & Gold Terminal (Funding Rates, DOM & Heatmap)")
-st.caption("Real-Time Funding Rates | DOM Depth Chart | Liquidity Heatmap | AI Signals & TP/SL")
+st.title("💎 AI Pro Crypto & Gold Terminal (All $300M+ Liquid Coins)")
+st.caption("Complete Market Scanner | Real-Time Funding Rates | DOM Depth Chart | Liquidity Heatmap & Risk Calculator")
 
 # Sidebar Settings
 st.sidebar.header("⚙️ Market & Strategy Settings")
@@ -33,7 +33,7 @@ def get_exchange(name):
 
 exchange = get_exchange(exchange_name)
 
-# Fetch Top Coins with Market Cap > $300M + Gold (XAU)
+# Fetch ALL Coins with Market Cap > $300M from CoinGecko + Gold (XAU)
 @st.cache_data(ttl=600)
 def get_top_assets():
     try:
@@ -41,11 +41,11 @@ def get_top_assets():
         params = {
             'vs_currency': 'usd',
             'order': 'market_cap_desc',
-            'per_page': 40,
+            'per_page': 250,  # Fetches ALL liquid coins > $300M market cap
             'page': 1,
             'sparkline': 'false'
         }
-        response = requests.get(url, params=params, timeout=10)
+        response = requests.get(url, params=params, timeout=15)
         data = response.json()
         symbols = ["XAU/USDT:USDT"]
         for coin in data:
@@ -55,7 +55,7 @@ def get_top_assets():
                     symbols.append(symbol)
         return symbols
     except Exception as e:
-        return ["XAU/USDT:USDT", "BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT", "XRP/USDT:USDT"]
+        return ["XAU/USDT:USDT", "BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT", "XRP/USDT:USDT", "ADA/USDT:USDT", "AVAX/USDT:USDT"]
 
 # Pure Pandas ATR Calculation
 def calculate_atr(df, length=14):
@@ -70,7 +70,6 @@ def analyze_asset(symbol, tf):
     try:
         fetch_sym = "PAXG/USDT:USDT" if "XAU" in symbol else symbol
         
-        # Real-Time Funding Rate Fetch
         funding_rate = 0.0
         try:
             funding_info = exchange.fetch_funding_rate(fetch_sym)
@@ -135,168 +134,29 @@ def analyze_asset(symbol, tf):
 st.markdown("### 🔍 Search Asset / Coin (e.g. BTC, ETH, XAU, SOL, PEPE)")
 custom_search = st.text_input("Type asset symbol manually or run Master Scan below:", value="")
 
-run_scan = st.button("🚀 Run Master Scan ($300M+ Coins & Gold)")
+run_scan = st.button("🚀 Run Master Scan (Scan ALL $300M+ Coins & Gold)")
 
 assets = get_top_assets()
 
 if run_scan:
-    with st.spinner("Scanning all $300M+ coins and Gold (XAU), fetching live funding rates & liquidity pools..."):
-        scanned = []
-        for asset in assets:
-            res = analyze_asset(asset, timeframe)
-            if res:
-                scanned.append(res)
-        if scanned:
-            st.session_state['scan_data'] = pd.DataFrame(scanned)
-            st.success("✅ Scan & Live Funding Rate Fetch Completed!")
+    scanned = []
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    total_assets = len(assets)
+    
+    for i, asset in enumerate(assets):
+        status_text.text(f"Analyzing ({i+1}/{total_assets}): {asset.split('/')[0]}...")
+        res = analyze_asset(asset, timeframe)
+        if res:
+            scanned.append(res)
+        progress_bar.progress((i + 1) / total_assets)
+        
+    status_text.empty()
+    progress_bar.empty()
+    
+    if scanned:
+        st.session_state['scan_data'] = pd.DataFrame(scanned)
+        st.success(f"✅ Successfully scanned all {len(scanned)} liquid assets ($300M+ & Gold)!")
 
 if custom_search and custom_search.strip() != "":
-    search_sym = f"{custom_search.upper().strip()}/USDT:USDT"
-    if "XAU" in custom_search.upper() or "GOLD" in custom_search.upper():
-        search_sym = "XAU/USDT:USDT"
-    
-    single_res = analyze_asset(search_sym, timeframe)
-    if single_res:
-        st.session_state['scan_data'] = pd.DataFrame([single_res])
-
-# Display Results if available
-if 'scan_data' in st.session_state and not st.session_state['scan_data'].empty:
-    df_results = st.session_state['scan_data']
-    
-    if 'Asset' in df_results.columns:
-        st.subheader("📊 Master Market Scanner & Real-Time Funding Rates")
-        
-        target_columns = ['Asset', 'Price', 'Funding Rate (%)', 'CVD Flow', 'Signal', 'Buy-Side Liquidity Pool', 'Sell-Side Liquidity Pool']
-        safe_columns = [col for col in target_columns if col in df_results.columns]
-        
-        st.dataframe(df_results[safe_columns], use_container_width=True, height=330)
-        
-        # --- Funding Rate Squeeze Radar ---
-        st.markdown("---")
-        st.subheader("🔥 Real-Time Funding Rate Squeeze Radar")
-        col_fr1, col_fr2 = st.columns(2)
-        
-        with col_fr1:
-            st.markdown("#### 🚀 Highest Positive Funding Rates (Long Squeeze Risk)")
-            high_fr = df_results.sort_values(by="Funding Rate (%)", ascending=False).head(3)
-            for idx, row in high_fr.iterrows():
-                st.markdown(f"• **{row['Asset']}**: `{row['Funding Rate (%)']}%` (Price: `${row['Price']}`)".replace("$$", "$"))
-                
-        with col_fr2:
-            st.markdown("#### 📉 Most Negative Funding Rates (Short Squeeze Risk)")
-            low_fr = df_results.sort_values(by="Funding Rate (%)", ascending=True).head(3)
-            for idx, row in low_fr.iterrows():
-                st.markdown(f"• **{row['Asset']}**: `{row['Funding Rate (%)']}%` (Price: `${row['Price']}`)".replace("$$", "$"))
-
-        st.markdown("---")
-        st.subheader("🎯 Detailed Chart, DOM, Liquidity Heatmap & Risk Calculator")
-        
-        asset_list = df_results['Asset'].tolist()
-        selected_asset = st.selectbox("Select Asset to view Analysis & Charts:", asset_list)
-        
-        if selected_asset:
-            asset_row = df_results[df_results['Asset'] == selected_asset].iloc[0]
-            raw_sym = asset_row['RawSymbol']
-            
-            # Layout Tabs for TradingView, DOM, and Heatmap
-            tab_chart, tab_dom, tab_heatmap = st.tabs(["📈 TradingView Live Chart", "📊 DOM / Depth Chart", "🔥 Liquidity Heatmap"])
-            
-            with tab_chart:
-                st.markdown(f"### Live Chart: `{selected_asset}`")
-                if selected_asset == "GOLD (XAU)":
-                    tv_symbol_str = "OANDA:XAUUSD"
-                else:
-                    tv_exchange = "BYBIT" if exchange_name == "BYBIT" else "MEXC"
-                    tv_symbol_str = f"{tv_exchange}:{selected_asset}USDT"
-                
-                tradingview_html = """
-                <!DOCTYPE html>
-                <html>
-                <head></head>
-                <body style="margin:0;background-color:#131722;">
-                    <div class="tradingview-widget-container" style="height:500px;width:100%">
-                      <div id="tradingview_widget" style="height:100%;width:100%"></div>
-                      <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-                      <script type="text/javascript">
-                      new TradingView.widget(
-                      {
-                        "autosize": true,
-                        "symbol": "TV_SYMBOL_PLACEHOLDER",
-                        "interval": "15",
-                        "timezone": "Etc/UTC",
-                        "theme": "dark",
-                        "style": "1",
-                        "locale": "en",
-                        "toolbar_bg": "#f1f3f6",
-                        "enable_publishing": false,
-                        "hide_side_toolbar": false,
-                        "allow_symbol_change": true,
-                        "details": true,
-                        "studies": [
-                          "Funding_Rate@tv-basicstudies",
-                          "VolumeProfile@tv-basicstudies"
-                        ],
-                        "container_id": "tradingview_widget"
-                      });
-                      </script>
-                    </div>
-                </body>
-                </html>
-                """.replace("TV_SYMBOL_PLACEHOLDER", tv_symbol_str)
-                components.html(tradingview_html, height=520)
-                
-            with tab_dom:
-                st.markdown(f"### 📊 Depth of Market (DOM) / Order Book: `{selected_asset}`")
-                try:
-                    order_book = exchange.fetch_order_book(raw_sym, limit=25)
-                    bids = pd.DataFrame(order_book['bids'], columns=['Price', 'Amount'])
-                    asks = pd.DataFrame(order_book['asks'], columns=['Price', 'Amount'])
-                    
-                    bids['Cumulative'] = bids['Amount'].cumsum()
-                    asks['Cumulative'] = asks['Amount'].cumsum()
-                    
-                    fig_dom = go.Figure()
-                    fig_dom.add_trace(go.Scatter(x=bids['Price'], y=bids['Cumulative'], name='Bids (Buy Wall)', fill='tozeroy', line_color='green'))
-                    fig_dom.add_trace(go.Scatter(x=asks['Price'], y=asks['Cumulative'], name='Asks (Sell Wall)', fill='tozeroy', line_color='red'))
-                    fig_dom.update_layout(title=f"Order Book Depth ({selected_asset})", template="plotly_dark", height=450, xaxis_title="Price", yaxis_title="Cumulative Volume")
-                    st.plotly_chart(fig_dom, use_container_width=True)
-                except Exception as e:
-                    st.warning("Could not fetch real-time DOM order book for this asset right now.")
-                    
-            with tab_heatmap:
-                st.markdown(f"### 🔥 Whale Leverage Liquidity Heatmap: `{selected_asset}`")
-                st.caption("Estimated Liquidation Clusters across 10x, 25x, 50x, and 100x leverage tiers.")
-                try:
-                    curr_p = asset_row['Price']
-                    leverages = [10, 25, 50, 100]
-                    heatmap_prices = []
-                    heatmap_liquidity = []
-                    
-                    for lev in leverages:
-                        long_liq = curr_p * (1 - (0.9 / lev))
-                        short_liq = curr_p * (1 + (0.9 / lev))
-                        
-                        heatmap_prices.extend([long_liq, short_liq])
-                        heatmap_liquidity.extend([lev * 15000, lev * 20000])
-                        
-                    df_heat = pd.DataFrame({'Price': heatmap_prices, 'Liquidity': heatmap_liquidity})
-                    
-                    fig_heat = px.density_heatmap(df_heat, x="Price", y="Liquidity", nbinsx=20, title=f"Estimated Liquidation Heatmap Zones ({selected_asset})", color_continuous_scale="Viridis")
-                    fig_heat.update_layout(template="plotly_dark", height=450)
-                    st.plotly_chart(fig_heat, use_container_width=True)
-                except Exception as e:
-                    st.warning("Could not render heatmap for this asset.")
-
-            # --- RISK CALCULATOR & TP/SL PANEL ---
-            st.markdown("---")
-            st.subheader("🧮 AI Setup, TP/SL & Risk Calculator")
-            
-            col_setup, col_calc = st.columns(2)
-            
-            with col_setup:
-                st.info(f"Signal: **{asset_row['Signal']}**")
-                entry_p = asset_row['Entry']
-                tp_p = asset_row['TP']
-                sl_p = asset_row['SL']
-                
-                st.metric(label="Real-Time Funding Rate", value=f"{asset_row['Funding Rate (%)']}%")
+    search_sym = f"{custom_search
