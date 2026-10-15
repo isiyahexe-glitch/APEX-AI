@@ -108,4 +108,146 @@ def analyze_asset(symbol, tf):
             sl = last_close + (last_atr * sl_mult)
             tp = last_close - ((sl - last_close) * risk_reward)
             
-        display_name = "GOLD (XAU)"
+        display_name = "GOLD (XAU)" if "XAU" in symbol else symbol.split('/')[0]
+        
+        return {
+            "Asset": display_name,
+            "RawSymbol": symbol,
+            "Price": round(last_close, 4),
+            "Funding Rate (%)": round(funding_rate, 4),
+            "CVD Flow": "BULLISH 🟢" if cvd_bullish else "BEARISH 🔴",
+            "Signal": signal,
+            "Entry": round(last_close, 4) if "NEUTRAL" not in signal else 0.0,
+            "TP": round(tp, 4) if "NEUTRAL" not in signal else 0.0,
+            "SL": round(sl, 4) if "NEUTRAL" not in signal else 0.0,
+            "Buy-Side Liquidity Pool": round(buy_side_liquidity, 4),
+            "Sell-Side Liquidity Pool": round(sell_side_liquidity, 4)
+        }
+    except Exception as e:
+        return None
+
+# --- UI LAYOUT ---
+st.markdown("### 🔍 Search Asset / Coin (e.g. BTC, ETH, XAU, SOL, PEPE)")
+custom_search = st.text_input("Type asset symbol manually or run Master Scan below:", value="")
+
+run_scan = st.button("🚀 Run Master Scan ($300M+ Coins & Gold)")
+
+assets = get_top_assets()
+
+# Handle Master Scan button
+if run_scan:
+    with st.spinner("Scanning all $300M+ coins and Gold (XAU), calculating liquidity pools & funding rates..."):
+        scanned = []
+        for asset in assets:
+            res = analyze_asset(asset, timeframe)
+            if res:
+                scanned.append(res)
+        if scanned:
+            st.session_state['scan_data'] = pd.DataFrame(scanned)
+            st.success("✅ Scan Completed Successfully!")
+
+# Handle direct custom search
+if custom_search and custom_search.strip() != "":
+    search_sym = f"{custom_search.upper().strip()}/USDT:USDT"
+    if "XAU" in custom_search.upper() or "GOLD" in custom_search.upper():
+        search_sym = "XAU/USDT:USDT"
+    
+    single_res = analyze_asset(search_sym, timeframe)
+    if single_res:
+        st.session_state['scan_data'] = pd.DataFrame([single_res])
+
+# Display Results if available
+if 'scan_data' in st.session_state:
+    df_results = st.session_state['scan_data']
+    
+    st.subheader("📊 Market Scanner & Liquidity Overview")
+    
+    target_columns = ['Asset', 'Price', 'Funding Rate (%)', 'CVD Flow', 'Signal', 'Buy-Side Liquidity Pool', 'Sell-Side Liquidity Pool']
+    safe_columns = [col for col in target_columns if col in df_results.columns]
+    
+    st.dataframe(df_results[safe_columns], use_container_width=True, height=350)
+    
+    st.markdown("---")
+    st.subheader("🎯 Detailed Chart, Whale Liquidity Pools & Risk Calculator")
+    
+    asset_list = df_results['Asset'].tolist()
+    selected_asset = st.selectbox("Select Asset to view TradingView Chart & Liquidity Analysis:", asset_list)
+    
+    if selected_asset:
+        asset_row = df_results[df_results['Asset'] == selected_asset].iloc[0]
+        
+        col_chart, col_calc = st.columns([1.3, 0.7])
+        
+        with col_chart:
+            st.markdown(f"### Live Chart: `{selected_asset}`")
+            
+            if selected_asset == "GOLD (XAU)":
+                tv_symbol_str = "OANDA:XAUUSD"
+            else:
+                tv_exchange = "BYBIT" if exchange_name == "BYBIT" else "MEXC"
+                tv_symbol_str = f"{tv_exchange}:{selected_asset}USDT"
+            
+            tradingview_html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head></head>
+            <body style="margin:0;background-color:#131722;">
+                <div class="tradingview-widget-container" style="height:520px;width:100%">
+                  <div id="tradingview_widget" style="height:100%;width:100%"></div>
+                  <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+                  <script type="text/javascript">
+                  new TradingView.widget(
+                  {{
+                    "autosize": true,
+                    "symbol": "{tv_symbol_str}",
+                    "interval": "15",
+                    "timezone": "Etc/UTC",
+                    "theme": "dark",
+                    "style": "1",
+                    "locale": "en",
+                    "toolbar_bg": "#f1f3f6",
+                    "enable_publishing": false,
+                    "hide_side_toolbar": false,
+                    "allow_symbol_change": true,
+                    "details": true,
+                    "studies": [
+                      "Funding_Rate@tv-basicstudies",
+                      "VolumeProfile@tv-basicstudies"
+                    ],
+                    "container_id": "tradingview_widget"
+                  }});
+                  </script>
+                </div>
+            </body>
+            </html>
+            """
+            components.html(tradingview_html, height=540)
+            
+        with col_calc:
+            st.markdown(f"### 🌊 Whale Liquidity Pools & Setup")
+            st.info(f"Signal: **{asset_row['Signal']}**")
+            
+            st.markdown(f"🔴 **Buy-Side Liquidity (Short SL Pool):** `${asset_row['Buy-Side Liquidity Pool']:,.4f}`")
+            st.markdown(f"🟢 **Sell-Side Liquidity (Long SL Pool):** `${asset_row['Sell-Side Liquidity Pool']:,.4f}`")
+            st.caption("💡 *Whalesලා සාමාන්‍යයෙන් මේ Liquidity Pools Sweep කරලා තමයි Reversal එකක් දෙන්නේ.*")
+            
+            st.markdown("---")
+            st.markdown("### 🧮 Risk & Position Calculator")
+            balance = st.number_input("Account Balance (USDT)", min_value=10.0, value=1000.0, step=50.0)
+            risk_pct = st.slider("Risk Tolerance (%)", min_value=0.5, max_value=5.0, value=1.0, step=0.5)
+            leverage = st.selectbox("Leverage (x)", [1, 2, 5, 10, 20, 50], index=3)
+            
+            entry_p = asset_row['Entry']
+            tp_p = asset_row['TP']
+            sl_p = asset_row['SL']
+            
+            if "NEUTRAL" not in asset_row['Signal'] and entry_p > 0 and sl_p > 0:
+                risk_amount_usdt = balance * (risk_pct / 100.0)
+                price_diff = abs(entry_p - sl_p)
+                
+                if price_diff > 0:
+                    position_size_tokens = risk_amount_usdt / price_diff
+                    position_size_usdt = position_size_tokens * entry_p
+                    margin_required = position_size_usdt / leverage
+                    
+                    tp_diff = abs(tp_p
