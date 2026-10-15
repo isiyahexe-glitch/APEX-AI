@@ -41,7 +41,7 @@ def get_top_assets():
         params = {
             'vs_currency': 'usd',
             'order': 'market_cap_desc',
-            'per_page': 250,  # Fetches ALL liquid coins > $300M market cap
+            'per_page': 250,
             'page': 1,
             'sparkline': 'false'
         }
@@ -159,4 +159,31 @@ if run_scan:
         st.success(f"✅ Successfully scanned all {len(scanned)} liquid assets ($300M+ & Gold)!")
 
 if custom_search and custom_search.strip() != "":
-    search_sym = f"{custom_search
+    search_sym = f"{custom_search.upper().strip()}/USDT:USDT"
+    if "XAU" in custom_search.upper() or "GOLD" in custom_search.upper():
+        search_sym = "XAU/USDT:USDT"
+    
+    single_res = analyze_asset(search_sym, timeframe)
+    if single_res:
+        st.session_state['scan_data'] = pd.DataFrame([single_res])
+
+# Display Results if available
+if 'scan_data' in st.session_state and not st.session_state['scan_data'].empty:
+    df_results = st.session_state['scan_data']
+    
+    if 'Asset' in df_results.columns:
+        st.subheader("📊 Master Market Scanner & Real-Time Funding Rates (All Coins)")
+        
+        target_columns = ['Asset', 'Price', 'Funding Rate (%)', 'CVD Flow', 'Signal', 'Buy-Side Liquidity Pool', 'Sell-Side Liquidity Pool']
+        safe_columns = [col for col in target_columns if col in df_results.columns]
+        
+        st.dataframe(df_results[safe_columns], use_container_width=True, height=350)
+        
+        # --- Funding Rate Squeeze Radar ---
+        st.markdown("---")
+        st.subheader("🔥 Real-Time Funding Rate Squeeze Radar")
+        col_fr1, col_fr2 = st.columns(2)
+        
+        with col_fr1:
+            st.markdown("#### 🚀 Highest Positive Funding Rates (Long Squeeze Risk)")
+            high_fr = df_results.sort
