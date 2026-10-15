@@ -1,7 +1,6 @@
 import streamlit as st
 import ccxt
 import pandas as pd
-import pandas_ta as ta
 import numpy as np
 import plotly.graph_objects as go
 import time
@@ -45,12 +44,19 @@ def fetch_top_coins(limit):
                 if quote_volume and quote_volume > 50000000: # High Liquid Coins Proxy
                     selected_coins.append((symbol, quote_volume))
         
-        # Sort by Volume
         selected_coins.sort(key=lambda x: x[1], reverse=True)
         return [coin[0] for coin in selected_coins[:limit]]
     except Exception as e:
         st.error(f"Error fetching tickers: {e}")
         return ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT"]
+
+# Custom Pure Pandas ATR Calculation (Replaces pandas-ta to fix deployment errors)
+def calculate_atr(df, length=14):
+    high_low = df['high'] - df['low']
+    high_close = np.abs(df['high'] - df['close'].shift())
+    low_close = np.abs(df['low'] - df['close'].shift())
+    true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    return true_range.rolling(window=length).mean()
 
 # Analysis Engine Logic
 def analyze_market(symbol, tf):
@@ -63,8 +69,8 @@ def analyze_market(symbol, tf):
         ohlcv = exchange.fetch_ohlcv(symbol, timeframe=tf, limit=100)
         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         
-        # 3. ATR Calculation for SL/TP
-        df['ATR'] = ta.atr(df['high'], df['low'], df['close'], length=14)
+        # 3. ATR Calculation for SL/TP (Using Pure Pandas)
+        df['ATR'] = calculate_atr(df, length=14)
         
         # 4. Malaysian Support & Resistance / CRT Pivots
         df['Pivot_High'] = df['high'].rolling(window=10).max()
@@ -77,6 +83,9 @@ def analyze_market(symbol, tf):
         # Current Metrics
         last_close = df['close'].iloc[-1]
         last_atr = df['ATR'].iloc[-1]
+        if pd.isna(last_atr):
+            last_atr = last_close * 0.01  # Fallback safety
+            
         res_zone = df['Pivot_High'].iloc[-2]
         sup_zone = df['Pivot_Low'].iloc[-2]
         cvd_trend = "BULLISH 🟢" if df['cvd'].iloc[-1] > df['cvd'].iloc[-5] else "BEARISH 🔴"
@@ -123,7 +132,6 @@ if st.button("🔄 Run Live Analysis Now"):
         
     st.success("Analysis Complete!")
     
-    # Display Table
     if results:
         res_df = pd.DataFrame(results)
         st.subheader("📊 Market Analysis & Signal Summary")
