@@ -12,14 +12,14 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🔥 Real-Time Crypto Multi-Analysis Engine")
+st.title("🔥 Real-Time Crypto Multi-Analysis Engine (Bybit Cloud Ready)")
 st.caption("SMC | Malaysian SnR | CVD | Real-Time Funding Rate | Auto TP/SL ($300M+ Liquidity)")
 
-# Initialize Binance Futures Exchange
+# Initialize Bybit Futures Exchange (Bypasses Binance Cloud Restrictions)
 @st.cache_resource
 def get_exchange():
-    return ccxt.binance({
-        'options': {'defaultType': 'future'},
+    return ccxt.bybit({
+        'options': {'defaultType': 'linear'},  # Linear USDT Perpetuals
         'enableRateLimit': True,
     })
 
@@ -32,25 +32,35 @@ risk_reward = st.sidebar.slider("Risk:Reward Ratio (TP Multiplier)", 1.0, 5.0, 2
 sl_atr_mult = st.sidebar.slider("SL ATR Multiplier", 1.0, 3.0, 1.5, 0.1)
 top_coins_count = st.sidebar.slider("Number of Top Liquid Coins", 5, 20, 10)
 
-# Fetch Top Coins (> $300M+ Liquidity Volume)
+# Fetch Top Coins from Bybit (> $300M+ Liquidity Volume)
 @st.cache_data(ttl=300)
 def fetch_top_coins(limit):
     try:
         tickers = exchange.fetch_tickers()
         selected_coins = []
         for symbol, data in tickers.items():
-            if symbol.endswith(':USDT') or symbol.endswith('USDT'):
+            # Filter Bybit USDT perpetual contracts
+            if 'USDT' in symbol and (symbol.endswith(':USDT') or '/USDT' in symbol):
                 quote_volume = data.get('quoteVolume', 0)
                 if quote_volume and quote_volume > 50000000: # High Liquid Coins Proxy
                     selected_coins.append((symbol, quote_volume))
         
         selected_coins.sort(key=lambda x: x[1], reverse=True)
-        return [coin[0] for coin in selected_coins[:limit]]
+        # Remove duplicates if any
+        unique_coins = []
+        seen = set()
+        for coin, vol in selected_coins:
+            base_symbol = coin.split(':')[0]
+            if base_symbol not in seen:
+                seen.add(base_symbol)
+                unique_coins.append(coin)
+                
+        return unique_coins[:limit]
     except Exception as e:
-        st.error(f"Error fetching tickers: {e}")
+        st.error(f"Error fetching tickers from Bybit: {e}")
         return ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT"]
 
-# Custom Pure Pandas ATR Calculation (Replaces pandas-ta to fix deployment errors)
+# Custom Pure Pandas ATR Calculation
 def calculate_atr(df, length=14):
     high_low = df['high'] - df['low']
     high_close = np.abs(df['high'] - df['close'].shift())
@@ -69,7 +79,7 @@ def analyze_market(symbol, tf):
         ohlcv = exchange.fetch_ohlcv(symbol, timeframe=tf, limit=100)
         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         
-        # 3. ATR Calculation for SL/TP (Using Pure Pandas)
+        # 3. ATR Calculation for SL/TP
         df['ATR'] = calculate_atr(df, length=14)
         
         # 4. Malaysian Support & Resistance / CRT Pivots
@@ -118,7 +128,7 @@ def analyze_market(symbol, tf):
 
 # App Execution & UI Rendering
 if st.button("🔄 Run Live Analysis Now"):
-    st.write("Scanning Top Liquid Crypto Markets...")
+    st.write("Scanning Top Liquid Crypto Markets via Bybit...")
     coins = fetch_top_coins(top_coins_count)
     
     results = []
