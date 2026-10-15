@@ -1,21 +1,19 @@
 import streamlit as st
 import streamlit.components.v1 as components
 
-# Page Configuration
 st.set_page_config(
-    page_title="Crypto TradingView & Real-Time Funding Rate Dashboard",
+    page_title="Crypto Multi-Analysis & TradingView Terminal",
     page_icon="📈",
     layout="wide"
 )
 
 st.title("🔥 Real-Time Crypto TradingView & Funding Rate Terminal")
-st.caption("TradingView Live Charts | Real-Time Funding Rate | Order Flow & SMC Setup ($300M+ Liquid Coins)")
+st.caption("SMC | ICT | Malaysian SnR | CVD | Volume Profile | Elliot Wave | Real-Time Funding Rate ($300M+ Liquid Coins)")
 
-# Sidebar Controls for Coin & Exchange Selection
-st.sidebar.header("⚙️ Market & Coin Settings")
-exchange_choice = st.sidebar.selectbox("Exchange Feed", ["BINANCE", "BYBIT"])
+st.sidebar.header("⚙️ Market Settings")
+exchange_choice = st.sidebar.selectbox("Exchange", ["BINANCE", "BYBIT"])
 coin_choice = st.sidebar.selectbox(
-    "Select Crypto Coin ($300M+ Liquid Market)",
+    "Select Coin ($300M+ Market Cap)",
     [
         "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", 
         "ADAUSDT", "AVAXUSDT", "DOGEUSDT", "LINKUSDT", "SUIUSDT",
@@ -23,10 +21,9 @@ coin_choice = st.sidebar.selectbox(
     ]
 )
 
-st.markdown(f"### 📊 Live Interactive Chart: `{exchange_choice}:{coin_choice}`")
-st.info("💡 **Tip:** Real-time Funding Rate බලාගැනීමට පහත Chart එකේ ඉහළ ඇති **'Indicators'** (fx) Button එක click කර **'Funding Rate'** ලෙස search කර Chart එකට එකතු කරගන්න.")
+st.markdown(f"### 📊 Live Chart: `{exchange_choice}:{coin_choice}`")
+st.info("💡 **Tip:** Add **Funding Rate**, **CVD**, and **Volume Profile** from the TradingView indicator menu above.")
 
-# Embedded TradingView Advanced Chart Widget (Bypasses all Cloud / AWS Server Blocks)
 tv_symbol = f"{exchange_choice}:{coin_choice}"
 
 tradingview_html = f"""
@@ -35,8 +32,7 @@ tradingview_html = f"""
 <head>
 </head>
 <body style="margin:0;background-color:#131722;">
-    <!-- TradingView Widget BEGIN -->
-    <div class="tradingview-widget-container" style="height:620px;width:100%">
+    <div class="tradingview-widget-container" style="height:650px;width:100%">
       <div id="tradingview_widget" style="height:100%;width:100%"></div>
       <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
       <script type="text/javascript">
@@ -65,28 +61,26 @@ tradingview_html = f"""
       );
       </script>
     </div>
-    <!-- TradingView Widget END -->
 </body>
 </html>
 """
 
-components.html(tradingview_html, height=640)
+components.html(tradingview_html, height=670)
 
-# Instructions for Indicators
 st.markdown("---")
-st.markdown("### 🛠️ Required Strategy Indicators Setup on TradingView:")
+st.markdown("### 🛠️ Required Indicator Stack:")
 col1, col2 = st.columns(2)
 
 with col1:
     st.markdown("""
-    * **Real-Time Funding Rate:** Chart එකේ ඉහළ ඇති `Indicators` ගොස් **Funding Rate** තෝරන්න.
-    * **Order Flow & CVD:** Search කරන්න **Cumulative Volume Delta (CVD)**.
-    * **Volume Profile:** Chart එකට Fixed Range Volume Profile (FRVP) හෝ Session Volume Profile දාගන්න.
+    * **Funding Rate:** Search `Funding Rate` in TV indicators.
+    * **Order Flow & CVD:** Search `Cumulative Volume Delta`.
+    * **Volume Profile:** Add `Fixed Range Volume Profile` or `Session Volume Profile`.
     """)
 
 with col2:
     st.markdown("""
-    * **SMC & ICT:** Search කරන්න **Smart Money Concepts [LuxAlgo]**.
-    * **Malaysian SnR / CRT:** Search කරන්න **Support Resistance / Malaysian SnR** indicators.
-    * **Auto TP/SL:** Risk-Reward tool එක භාවිතයෙන් TP සහ SL levels mark කරගන්න.
+    * **SMC & ICT:** Search `Smart Money Concepts [LuxAlgo]`.
+    * **Malaysian SnR / CRT:** Search `Support Resistance / Malaysian SnR`.
+    * **Elliot Wave:** Search `Auto Elliott Wave` or use manual ZigZag.
     """)
