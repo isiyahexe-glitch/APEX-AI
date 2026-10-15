@@ -1,8 +1,6 @@
-මෙම `SyntaxError: unterminated triple-quoted string literal` දෝෂය සම්පූර්ණයෙන්ම ඉවත් කර, Python parser එකට බාධාවක් නොවන පරිදි සම්පූර්ණයෙන්ම පිරිසිදු කරන ලද **අලුත්ම Code එක** මෙන්න:
+ඔයා වැරදීමකින් පිළිතුරේ තිබූ සිංහල වචන ටිකත් එක්කම කොපි කරලා Python file එකට දාලා තියෙනවා.
 
-### Complete Fixed `app.py` Code
-
-ඔයාගේ GitHub repository එකේ ඇති `app.py` File එක සම්පූර්ණයෙන්ම මකා දමා පහත කේතය Paste කර **Commit** කරන්න:
+පහත කේත කොටුවට උඩින් ඇති **'Copy' button එක ක්ලික් කරලා, කොටුව ඇතුළේ තියෙන Pure Python code එක පමණක්** කොපි කරලා GitHub එකේ `app.py` එකට දාන්න:
 
 ```python
 import streamlit as st
