@@ -4,17 +4,18 @@ import pandas as pd
 import numpy as np
 import requests
 import plotly.graph_objects as go
+import plotly.express as px
 import streamlit.components.v1 as components
 
 # Page Configuration
 st.set_page_config(
-    page_title="AI Pro Crypto & Gold Terminal (DOM & Heatmap)",
+    page_title="AI Pro Crypto & Gold Terminal (Funding & DOM)",
     page_icon="⚡",
     layout="wide"
 )
 
-st.title("⚡ AI Pro Crypto & Gold Terminal (DOM, Heatmap & Risk)")
-st.caption("Gold (XAU) & $300M+ Crypto | DOM Depth Chart | Liquidity Heatmap | AI Signals & TP/SL")
+st.title("⚡ AI Pro Crypto & Gold Terminal (Funding Rates, DOM & Heatmap)")
+st.caption("Real-Time Funding Rates | DOM Depth Chart | Liquidity Heatmap | AI Signals & TP/SL")
 
 # Sidebar Settings
 st.sidebar.header("⚙️ Market & Strategy Settings")
@@ -64,15 +65,18 @@ def calculate_atr(df, length=14):
     true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
     return true_range.rolling(window=length).mean()
 
-# Advanced Analysis & Liquidity Heatmap Data
+# Advanced Analysis & Real-Time Funding Rate Fetch
 def analyze_asset(symbol, tf):
     try:
         fetch_sym = "PAXG/USDT:USDT" if "XAU" in symbol else symbol
         
+        # Real-Time Funding Rate Fetch
+        funding_rate = 0.0
         try:
             funding_info = exchange.fetch_funding_rate(fetch_sym)
-            funding_rate = funding_info.get('fundingRate', 0.0001) * 100
-        except:
+            if funding_info and 'fundingRate' in funding_info and funding_info['fundingRate'] is not None:
+                funding_rate = float(funding_info['fundingRate']) * 100
+        except Exception as fr_err:
             funding_rate = 0.01
 
         ohlcv = exchange.fetch_ohlcv(fetch_sym, timeframe=tf, limit=100)
@@ -115,7 +119,7 @@ def analyze_asset(symbol, tf):
             "Asset": display_name,
             "RawSymbol": fetch_sym,
             "Price": round(last_close, 4),
-            "Funding Rate (%)": round(funding_rate, 4),
+            "Funding Rate (%)": round(funding_rate, 5),
             "CVD Flow": "BULLISH 🟢" if cvd_bullish else "BEARISH 🔴",
             "Signal": signal,
             "Entry": round(last_close, 4) if "NEUTRAL" not in signal else 0.0,
@@ -136,7 +140,7 @@ run_scan = st.button("🚀 Run Master Scan ($300M+ Coins & Gold)")
 assets = get_top_assets()
 
 if run_scan:
-    with st.spinner("Scanning all $300M+ coins and Gold (XAU), calculating liquidity pools & funding rates..."):
+    with st.spinner("Scanning all $300M+ coins and Gold (XAU), fetching live funding rates & liquidity pools..."):
         scanned = []
         for asset in assets:
             res = analyze_asset(asset, timeframe)
@@ -144,7 +148,7 @@ if run_scan:
                 scanned.append(res)
         if scanned:
             st.session_state['scan_data'] = pd.DataFrame(scanned)
-            st.success("✅ Scan Completed Successfully!")
+            st.success("✅ Scan & Live Funding Rate Fetch Completed!")
 
 if custom_search and custom_search.strip() != "":
     search_sym = f"{custom_search.upper().strip()}/USDT:USDT"
@@ -160,13 +164,30 @@ if 'scan_data' in st.session_state and not st.session_state['scan_data'].empty:
     df_results = st.session_state['scan_data']
     
     if 'Asset' in df_results.columns:
-        st.subheader("📊 Market Scanner & Liquidity Overview")
+        st.subheader("📊 Master Market Scanner & Real-Time Funding Rates")
         
         target_columns = ['Asset', 'Price', 'Funding Rate (%)', 'CVD Flow', 'Signal', 'Buy-Side Liquidity Pool', 'Sell-Side Liquidity Pool']
         safe_columns = [col for col in target_columns if col in df_results.columns]
         
         st.dataframe(df_results[safe_columns], use_container_width=True, height=330)
         
+        # --- Funding Rate Squeeze Radar ---
+        st.markdown("---")
+        st.subheader("🔥 Real-Time Funding Rate Squeeze Radar")
+        col_fr1, col_fr2 = st.columns(2)
+        
+        with col_fr1:
+            st.markdown("#### 🚀 Highest Positive Funding Rates (Long Squeeze Risk)")
+            high_fr = df_results.sort_values(by="Funding Rate (%)", ascending=False).head(3)
+            for idx, row in high_fr.iterrows():
+                st.markdown(f"• **{row['Asset']}**: `{row['Funding Rate (%)']}%` (Price: ${row['Price']})")
+                
+        with col_fr2:
+            st.markdown("#### 📉 Most Negative Funding Rates (Short Squeeze Risk)")
+            low_fr = df_results.sort_values(by="Funding Rate (%)", ascending=True).head(3)
+            for idx, row in low_fr.iterrows():
+                st.markdown(f"• **{row['Asset']}**: `{row['Funding Rate (%)']}%` (Price: ${row['Price']})")
+
         st.markdown("---")
         st.subheader("🎯 Detailed Chart, DOM, Liquidity Heatmap & Risk Calculator")
         
@@ -247,19 +268,16 @@ if 'scan_data' in st.session_state and not st.session_state['scan_data'].empty:
                 st.caption("Estimated Liquidation Clusters across 10x, 25x, 50x, and 100x leverage tiers.")
                 try:
                     curr_p = asset_row['Price']
-                    # Simulate liquidation heatmap levels based on current price and leverage tiers
                     leverages = [10, 25, 50, 100]
                     heatmap_prices = []
                     heatmap_liquidity = []
                     
                     for lev in leverages:
-                        # Long liquidation price drops below current price
                         long_liq = curr_p * (1 - (0.9 / lev))
-                        # Short liquidation price rises above current price
                         short_liq = curr_p * (1 + (0.9 / lev))
                         
                         heatmap_prices.extend([long_liq, short_liq])
-                        heatmap_liquidity.extend([lev * 15000, lev * 20000]) # weighted volume representation
+                        heatmap_liquidity.extend([lev * 15000, lev * 20000])
                         
                     df_heat = pd.DataFrame({'Price': heatmap_prices, 'Liquidity': heatmap_liquidity})
                     
@@ -281,34 +299,6 @@ if 'scan_data' in st.session_state and not st.session_state['scan_data'].empty:
                 tp_p = asset_row['TP']
                 sl_p = asset_row['SL']
                 
-                if "NEUTRAL" not in asset_row['Signal'] and entry_p > 0 and sl_p > 0:
-                    st.success(f"**🎯 Entry Price:** `${entry_p:,.4f}`\n\n**🟢 Take Profit (TP):** `${tp_p:,.4f}`\n\n**🔴 Stop Loss (SL):** `${sl_p:,.4f}`")
-                    st.markdown(f"🔴 **Buy-Side Liquidity Pool:** `${asset_row['Buy-Side Liquidity Pool']:,.4f}`")
-                    st.markdown(f"🟢 **Sell-Side Liquidity Pool:** `${asset_row['Sell-Side Liquidity Pool']:,.4f}`")
-                else:
-                    st.warning("Market is in Neutral range. Wait for breakout of Liquidity Pools.")
-                    
-            with col_calc:
-                balance = st.number_input("Account Balance (USDT)", min_value=10.0, value=1000.0, step=50.0)
-                risk_pct = st.slider("Risk Tolerance (%)", min_value=0.5, max_value=5.0, value=1.0, step=0.5)
-                leverage = st.selectbox("Leverage (x)", [1, 2, 5, 10, 20, 50], index=3)
+                st.metric(label="Real-Time Funding Rate", value=f"{asset_row['Funding Rate (%)']}%")
                 
-                if "NEUTRAL" not in asset_row['Signal'] and entry_p > 0 and sl_p > 0:
-                    risk_amount_usdt = balance * (risk_pct / 100.0)
-                    price_diff = abs(entry_p - sl_p)
-                    
-                    if price_diff > 0:
-                        position_size_tokens = risk_amount_usdt / price_diff
-                        position_size_usdt = position_size_tokens * entry_p
-                        margin_required = position_size_usdt / leverage
-                        tp_diff = abs(tp_p - entry_p)
-                        potential_profit = position_size_tokens * tp_diff
-                        
-                        st.markdown(f"💰 **Position Size:** `{position_size_tokens:,.2f} {selected_asset}` (`${position_size_usdt:,.2f} USDT`)")
-                        st.markdown(f"⚠️ **Margin Required ({leverage}x):** `${margin_required:,.2f} USDT`")
-                        st.markdown(f"🛑 **Max Risk Loss:** `${risk_amount_usdt:,.2f} USDT` ({risk_pct}%)")
-                        st.markdown(f"🏆 **Target Profit:** `${potential_profit:,.2f} USDT`")
-    else:
-        st.warning("Scan data format error. Please click 'Run Master Scan' again.")
-else:
-    st.info("👆 Type any asset in the search box above (e.g. `XAU`, `BTC`, `SOL`) or click **'Run Master Scan'** to start.")
+                if "NEUTRAL" not in asset_row['Signal'] and entry_p >
