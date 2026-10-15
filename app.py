@@ -1,119 +1,320 @@
-import streamlit as st
+import json
+import os
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 import ccxt
-import pandas as pd
 import numpy as np
-import requests
-import plotly.graph_objects as go
+import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
+import requests
+import streamlit as st
 import streamlit.components.v1 as components
 
-# Page Configuration
+# =====================================================================
+# PAGE CONFIG
+# =====================================================================
 st.set_page_config(
-    page_title="AI Pro Crypto & Gold Terminal (All Coins Scan)",
+    page_title="APEX AI BOT",
     page_icon="💎",
-    layout="wide"
+    layout="wide",
 )
 
-st.title("💎 AI Pro Crypto & Gold Terminal (All $300M+ Liquid Coins)")
-st.caption("Complete Market Scanner | Real-Time Funding Rates | DOM Depth Chart | Liquidity Heatmap & Risk Calculator")
+# =====================================================================
+# ACCESS CONTROL  (owner = permanent, sub = valid 7 days from first login)
+# Tip: for real deployments put these in .streamlit/secrets.toml
+#   OWNER_PASS = "..."   SUB_PASS = "..."
+# =====================================================================
+OWNER_PASS = st.secrets.get("OWNER_PASS", "apex123") if hasattr(st, "secrets") else "apex123"
+SUB_PASS = st.secrets.get("SUB_PASS", "apex1234") if hasattr(st, "secrets") else "apex1234"
+SUB_DAYS = 7
+ACCESS_FILE = "apex_access.json"
 
-# Sidebar Settings
+
+def load_access():
+    if os.path.exists(ACCESS_FILE):
+        try:
+            with open(ACCESS_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def save_access(data):
+    with open(ACCESS_FILE, "w") as f:
+        json.dump(data, f)
+
+
+def sub_status():
+    """Returns (is_valid, seconds_left). Starts the 7-day timer on first use."""
+    data = load_access()
+    start = data.get("sub_start")
+    if start is None:
+        return True, SUB_DAYS * 86400
+    left = SUB_DAYS * 86400 - (time.time() - start)
+    return left > 0, max(left, 0)
+
+
+# =====================================================================
+# GLOBAL CSS  (3D / glass look + animations)
+# =====================================================================
+st.markdown(
+    """
+<style>
+.stApp { background: radial-gradient(circle at 20% 0%, #14213d 0%, #0b0f1a 45%, #05070d 100%); }
+h1, h2, h3 { letter-spacing: .5px; }
+
+/* ---------- Loader ---------- */
+.loader-wrap { display:flex; flex-direction:column; align-items:center; padding:30px 0; }
+.ring { position:relative; width:110px; height:110px; perspective:400px; }
+.ring div { position:absolute; inset:0; border-radius:50%; border:4px solid transparent; }
+.ring div:nth-child(1){ border-top-color:#00e5ff; animation:spin 1.1s linear infinite; }
+.ring div:nth-child(2){ inset:12px; border-right-color:#ffd700; animation:spin 1.6s linear infinite reverse; }
+.ring div:nth-child(3){ inset:24px; border-bottom-color:#ff3d71; animation:spin .9s linear infinite; }
+.ring span { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+             font-size:30px; animation:pulse 1.4s ease-in-out infinite; }
+.loader-text { margin-top:16px; color:#cfe8ff; font-weight:600; letter-spacing:1px; }
+.loader-bar { width:320px; height:8px; background:#1b2338; border-radius:20px; margin-top:12px; overflow:hidden;
+              box-shadow: inset 0 2px 4px #000; }
+.loader-bar i { display:block; height:100%; background:linear-gradient(90deg,#00e5ff,#7c4dff,#ffd700);
+                background-size:200% 100%; animation:slide 1.2s linear infinite; border-radius:20px; }
+@keyframes spin { to { transform: rotate(360deg);} }
+@keyframes pulse { 0%,100%{ transform:scale(1);} 50%{ transform:scale(1.25);} }
+@keyframes slide { to { background-position:-200% 0;} }
+@keyframes floaty { 0%,100%{ transform:translateY(0);} 50%{ transform:translateY(-8px);} }
+@keyframes glow { 0%,100%{ box-shadow:0 0 18px #00e5ff55;} 50%{ box-shadow:0 0 38px #7c4dffaa;} }
+
+/* ---------- Login ---------- */
+.login-card { max-width:460px; margin:40px auto 10px auto; padding:34px; border-radius:22px;
+              background:linear-gradient(145deg,#141b2e,#0c1120); border:1px solid #26324f;
+              animation:floaty 4s ease-in-out infinite, glow 3s ease-in-out infinite; text-align:center; }
+.login-card h1 { margin:0; font-size:34px; background:linear-gradient(90deg,#00e5ff,#ffd700);
+                 -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+.login-card p { color:#8fa3c7; margin-top:6px; }
+
+/* ---------- Trade cards (3D) ---------- */
+.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(270px,1fr)); gap:18px; perspective:900px; }
+.tcard { background:linear-gradient(145deg,#161e33,#0d1324); border:1px solid #26324f; border-radius:18px;
+         padding:16px 18px; transition:transform .25s ease, box-shadow .25s ease;
+         box-shadow:0 10px 24px #00000066, inset 0 1px 0 #ffffff12; }
+.tcard:hover { transform:rotateX(4deg) rotateY(-4deg) translateY(-6px) scale(1.02);
+               box-shadow:0 22px 40px #000000aa, 0 0 22px #00e5ff33; }
+.tcard.long  { border-left:5px solid #00e676; }
+.tcard.short { border-left:5px solid #ff3d71; }
+.thead { display:flex; justify-content:space-between; align-items:center; }
+.tname { font-size:20px; font-weight:800; color:#fff; }
+.badge { font-size:11px; font-weight:800; padding:4px 10px; border-radius:20px; letter-spacing:.5px; }
+.b-long { background:#00e67622; color:#00e676; border:1px solid #00e67666; }
+.b-short{ background:#ff3d7122; color:#ff3d71; border:1px solid #ff3d7166; }
+.b-watch{ background:#ffd70018; color:#ffd700; border:1px solid #ffd70055; }
+.row { display:flex; justify-content:space-between; margin-top:9px; font-size:14px; }
+.lbl { color:#8fa3c7; }
+.v-entry { color:#00e5ff; font-weight:700; }
+.v-tp { color:#00e676; font-weight:700; }
+.v-sl { color:#ff3d71; font-weight:700; }
+.meta { margin-top:10px; padding-top:8px; border-top:1px dashed #26324f; font-size:12px; color:#7d8fb3;
+        display:flex; justify-content:space-between; }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+
+def loader_html(text, pct=None, icon="💎"):
+    bar = ""
+    if pct is not None:
+        bar = f'<div class="loader-bar"><i style="width:{int(pct*100)}%"></i></div>'
+    else:
+        bar = '<div class="loader-bar"><i style="width:100%"></i></div>'
+    return f"""
+<div class="loader-wrap">
+  <div class="ring"><div></div><div></div><div></div><span>{icon}</span></div>
+  <div class="loader-text">{text}</div>
+  {bar}
+</div>"""
+
+
+# =====================================================================
+# LOGIN SCREEN
+# =====================================================================
+if "role" not in st.session_state:
+    st.session_state["role"] = None
+
+if st.session_state["role"] is None:
+    st.markdown(
+        """
+<div class="login-card">
+  <h1>💎 APEX AI BOT</h1>
+  <p>AI Pro Crypto & Gold Scanner — Private Access</p>
+</div>""",
+        unsafe_allow_html=True,
+    )
+    _, mid, _ = st.columns([1, 1.2, 1])
+    with mid:
+        pw = st.text_input("🔑 Enter Access Password", type="password", key="login_pw")
+        if st.button("🚀 Unlock Terminal", use_container_width=True):
+            if pw == OWNER_PASS:
+                ph = st.empty()
+                for p in range(0, 101, 10):
+                    ph.markdown(loader_html("Verifying OWNER access...", p / 100, "👑"), unsafe_allow_html=True)
+                    time.sleep(0.12)
+                ph.empty()
+                st.session_state["role"] = "owner"
+                st.rerun()
+            elif pw == SUB_PASS:
+                valid, _left = sub_status()
+                if not valid:
+                    st.error("⛔ Sub password expired (7-day access finished). Contact the owner.")
+                else:
+                    data = load_access()
+                    if data.get("sub_start") is None:
+                        data["sub_start"] = time.time()
+                        save_access(data)
+                    ph = st.empty()
+                    for p in range(0, 101, 10):
+                        ph.markdown(loader_html("Verifying SUB access...", p / 100, "🔓"), unsafe_allow_html=True)
+                        time.sleep(0.12)
+                    ph.empty()
+                    st.session_state["role"] = "sub"
+                    st.rerun()
+            else:
+                st.error("❌ Wrong password")
+    st.stop()
+
+# Re-check sub expiry on every rerun
+if st.session_state["role"] == "sub":
+    _valid, _left = sub_status()
+    if not _valid:
+        st.session_state["role"] = None
+        st.warning("⛔ Your 7-day sub access has expired.")
+        st.stop()
+
+# =====================================================================
+# HEADER + SIDEBAR
+# =====================================================================
+st.title("💎 APEX AI BOT")
+st.caption("Complete Market Scanner | Funding Rates | DOM Depth | Liquidity Heatmap | TP/SL for every coin")
+
+st.sidebar.markdown(f"**Logged in as:** `{st.session_state['role'].upper()}`")
+if st.session_state["role"] == "sub":
+    days_left = _left / 86400
+    st.sidebar.info(f"⏳ Sub access left: **{days_left:.1f} days**")
+if st.session_state["role"] == "owner":
+    with st.sidebar.expander("👑 Owner Panel"):
+        d = load_access()
+        if d.get("sub_start"):
+            _, l = sub_status()
+            st.write(f"Sub week running — {l/86400:.1f} days left")
+        else:
+            st.write("Sub week not started yet.")
+        if st.button("🔄 Reset / Start New Sub Week"):
+            save_access({})
+            st.success("Sub timer reset. New 7 days start on next sub login.")
+if st.sidebar.button("🚪 Logout"):
+    st.session_state["role"] = None
+    st.rerun()
+
 st.sidebar.header("⚙️ Market & Strategy Settings")
 exchange_name = st.sidebar.selectbox("Select Exchange", ["MEXC", "BYBIT"])
 timeframe = st.sidebar.selectbox("Timeframe", ["15m", "1h", "4h"], index=1)
-
 risk_reward = st.sidebar.slider("Risk-to-Reward Ratio (TP Multiplier)", 1.0, 5.0, 2.0, 0.5)
 sl_mult = st.sidebar.slider("Stop Loss ATR Multiplier", 1.0, 3.0, 1.5, 0.1)
 
-# Initialize Exchange
+
+# =====================================================================
+# DATA FUNCTIONS
+# =====================================================================
 @st.cache_resource
 def get_exchange(name):
-    config = {'options': {'defaultType': 'swap'}, 'enableRateLimit': True}
+    config = {"options": {"defaultType": "swap"}, "enableRateLimit": True}
     return ccxt.bybit(config) if name == "BYBIT" else ccxt.mexc(config)
+
 
 exchange = get_exchange(exchange_name)
 
-# Fetch ALL Coins with Market Cap > $300M from CoinGecko + Gold (XAU)
+
 @st.cache_data(ttl=600)
 def get_top_assets():
     try:
         url = "https://api.coingecko.com/api/v3/coins/markets"
-        params = {
-            'vs_currency': 'usd',
-            'order': 'market_cap_desc',
-            'per_page': 250,
-            'page': 1,
-            'sparkline': 'false'
-        }
-        response = requests.get(url, params=params, timeout=15)
-        data = response.json()
+        params = {"vs_currency": "usd", "order": "market_cap_desc", "per_page": 250, "page": 1, "sparkline": "false"}
+        data = requests.get(url, params=params, timeout=15).json()
         symbols = ["XAU/USDT:USDT"]
         for coin in data:
-            if coin['market_cap'] and coin['market_cap'] > 300000000:
-                symbol = f"{coin['symbol'].upper()}/USDT:USDT"
-                if symbol not in symbols:
-                    symbols.append(symbol)
+            if coin["market_cap"] and coin["market_cap"] > 300_000_000:
+                s = f"{coin['symbol'].upper()}/USDT:USDT"
+                if s not in symbols:
+                    symbols.append(s)
         return symbols
-    except Exception as e:
-        return ["XAU/USDT:USDT", "BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT", "XRP/USDT:USDT", "ADA/USDT:USDT", "AVAX/USDT:USDT"]
+    except Exception:
+        return ["XAU/USDT:USDT", "BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT",
+                "XRP/USDT:USDT", "ADA/USDT:USDT", "AVAX/USDT:USDT"]
 
-# Pure Pandas ATR Calculation
+
 def calculate_atr(df, length=14):
-    high_low = df['high'] - df['low']
-    high_close = np.abs(df['high'] - df['close'].shift())
-    low_close = np.abs(df['low'] - df['close'].shift())
-    true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-    return true_range.rolling(window=length).mean()
+    high_low = df["high"] - df["low"]
+    high_close = np.abs(df["high"] - df["close"].shift())
+    low_close = np.abs(df["low"] - df["close"].shift())
+    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    return tr.rolling(window=length).mean()
 
-# Advanced Analysis & Real-Time Funding Rate Fetch
-def analyze_asset(symbol, tf):
+
+def analyze_asset(symbol, tf, sl_m, rr):
+    """Always returns a full TP/SL setup. Confirmed breakouts = LONG/SHORT POSITION,
+    otherwise a WATCH setup in the direction of CVD flow."""
     try:
         fetch_sym = "PAXG/USDT:USDT" if "XAU" in symbol else symbol
-        
+
         funding_rate = 0.0
         try:
-            funding_info = exchange.fetch_funding_rate(fetch_sym)
-            if funding_info and 'fundingRate' in funding_info and funding_info['fundingRate'] is not None:
-                funding_rate = float(funding_info['fundingRate']) * 100
-        except Exception as fr_err:
-            funding_rate = 0.01
+            fi = exchange.fetch_funding_rate(fetch_sym)
+            if fi and fi.get("fundingRate") is not None:
+                funding_rate = float(fi["fundingRate"]) * 100
+        except Exception:
+            funding_rate = 0.0
 
         ohlcv = exchange.fetch_ohlcv(fetch_sym, timeframe=tf, limit=100)
-        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        
-        df['ATR'] = calculate_atr(df, length=14)
-        df['Resistance'] = df['high'].rolling(window=10).max()
-        df['Support'] = df['low'].rolling(window=10).min()
-        
-        df['vol_dir'] = np.where(df['close'] >= df['open'], 1, -1)
-        df['cvd'] = (df['volume'] * df['vol_dir']).cumsum()
-        
-        last_close = df['close'].iloc[-1]
-        last_atr = df['ATR'].iloc[-1]
-        if pd.isna(last_atr):
-            last_atr = last_close * 0.01
-            
-        res_zone = df['Resistance'].iloc[-2]
-        sup_zone = df['Support'].iloc[-2]
-        cvd_bullish = df['cvd'].iloc[-1] > df['cvd'].iloc[-5]
-        
-        buy_side_liquidity = res_zone + (last_atr * 0.5)
-        sell_side_liquidity = sup_zone - (last_atr * 0.5)
+        df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+        if len(df) < 20:
+            return None
 
-        signal = "NEUTRAL ⏳"
-        tp, sl = 0.0, 0.0
-        
+        df["ATR"] = calculate_atr(df, 14)
+        df["Resistance"] = df["high"].rolling(10).max()
+        df["Support"] = df["low"].rolling(10).min()
+        df["vol_dir"] = np.where(df["close"] >= df["open"], 1, -1)
+        df["cvd"] = (df["volume"] * df["vol_dir"]).cumsum()
+
+        last_close = float(df["close"].iloc[-1])
+        last_atr = df["ATR"].iloc[-1]
+        if pd.isna(last_atr) or last_atr <= 0:
+            last_atr = last_close * 0.01
+
+        res_zone = float(df["Resistance"].iloc[-2])
+        sup_zone = float(df["Support"].iloc[-2])
+        cvd_bullish = bool(df["cvd"].iloc[-1] > df["cvd"].iloc[-5])
+
+        buy_liq = res_zone + last_atr * 0.5
+        sell_liq = sup_zone - last_atr * 0.5
+
         if last_close > res_zone and cvd_bullish:
-            signal = "LONG POSITION 🚀"
-            sl = last_close - (last_atr * sl_mult)
-            tp = last_close + ((last_close - sl) * risk_reward)
+            direction, confirmed, signal = "LONG", True, "LONG POSITION 🚀"
         elif last_close < sup_zone and not cvd_bullish:
-            signal = "SHORT POSITION 📉"
-            sl = last_close + (last_atr * sl_mult)
-            tp = last_close - ((sl - last_close) * risk_reward)
-            
-        display_name = "GOLD (XAU)" if "XAU" in symbol else symbol.split('/')[0]
-        
+            direction, confirmed, signal = "SHORT", True, "SHORT POSITION 📉"
+        elif cvd_bullish:
+            direction, confirmed, signal = "LONG", False, "WATCH LONG 👀"
+        else:
+            direction, confirmed, signal = "SHORT", False, "WATCH SHORT 👀"
+
+        if direction == "LONG":
+            sl = last_close - last_atr * sl_m
+            tp = last_close + (last_close - sl) * rr
+        else:
+            sl = last_close + last_atr * sl_m
+            tp = last_close - (sl - last_close) * rr
+
+        display_name = "GOLD (XAU)" if "XAU" in symbol else symbol.split("/")[0]
         return {
             "Asset": display_name,
             "RawSymbol": fetch_sym,
@@ -121,222 +322,244 @@ def analyze_asset(symbol, tf):
             "Funding Rate (%)": round(funding_rate, 5),
             "CVD Flow": "BULLISH 🟢" if cvd_bullish else "BEARISH 🔴",
             "Signal": signal,
-            "Entry": round(last_close, 4) if "NEUTRAL" not in signal else 0.0,
-            "TP": round(tp, 4) if "NEUTRAL" not in signal else 0.0,
-            "SL": round(sl, 4) if "NEUTRAL" not in signal else 0.0,
-            "Buy-Side Liquidity Pool": round(buy_side_liquidity, 4),
-            "Sell-Side Liquidity Pool": round(sell_side_liquidity, 4)
+            "Direction": direction,
+            "Confirmed": confirmed,
+            "Entry": round(last_close, 4),
+            "TP": round(tp, 4),
+            "SL": round(sl, 4),
+            "RR": f"1:{rr:g}",
+            "Buy-Side Liquidity Pool": round(buy_liq, 4),
+            "Sell-Side Liquidity Pool": round(sell_liq, 4),
         }
-    except Exception as e:
+    except Exception:
         return None
 
-# --- UI LAYOUT ---
+
+def trade_cards_html(df):
+    cards = []
+    for _, r in df.iterrows():
+        cls = "long" if r["Direction"] == "LONG" else "short"
+        if r["Confirmed"]:
+            badge = f'<span class="badge b-{cls}">{r["Signal"]}</span>'
+        else:
+            badge = f'<span class="badge b-watch">{r["Signal"]}</span>'
+        cards.append(f"""
+<div class="tcard {cls}">
+  <div class="thead"><span class="tname">{r['Asset']}</span>{badge}</div>
+  <div class="row"><span class="lbl">🎯 Entry</span><span class="v-entry">${r['Entry']:,.4f}</span></div>
+  <div class="row"><span class="lbl">🟢 Take Profit</span><span class="v-tp">${r['TP']:,.4f}</span></div>
+  <div class="row"><span class="lbl">🔴 Stop Loss</span><span class="v-sl">${r['SL']:,.4f}</span></div>
+  <div class="meta"><span>R:R {r['RR']}</span><span>Funding {r['Funding Rate (%)']}%</span><span>{r['CVD Flow']}</span></div>
+</div>""")
+    return '<div class="grid">' + "".join(cards) + "</div>"
+
+
+# =====================================================================
+# SEARCH + SCAN
+# =====================================================================
 st.markdown("### 🔍 Search Asset / Coin (e.g. BTC, ETH, XAU, SOL, PEPE)")
-custom_search = st.text_input("Type asset symbol manually or run Master Scan below:", value="")
+c1, c2 = st.columns([3, 1])
+with c1:
+    custom_search = st.text_input("Type asset symbol manually or run Master Scan below:", value="")
+with c2:
+    st.write("")
+    st.write("")
+    do_search = st.button("🔎 Search", use_container_width=True)
 
 run_scan = st.button("🚀 Run Master Scan (Scan ALL $300M+ Coins & Gold)")
-
 assets = get_top_assets()
 
 if run_scan:
     scanned = []
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    total_assets = len(assets)
-    
-    for i, asset in enumerate(assets):
-        status_text.text(f"Analyzing ({i+1}/{total_assets}): {asset.split('/')[0]}...")
-        res = analyze_asset(asset, timeframe)
-        if res:
-            scanned.append(res)
-        progress_bar.progress((i + 1) / total_assets)
-        
-    status_text.empty()
-    progress_bar.empty()
-    
+    total = len(assets)
+    ph = st.empty()
+    done = 0
+    ph.markdown(loader_html(f"Starting scan of {total} assets...", 0.0, "📡"), unsafe_allow_html=True)
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        futures = {ex.submit(analyze_asset, a, timeframe, sl_mult, risk_reward): a for a in assets}
+        for fut in as_completed(futures):
+            done += 1
+            name = futures[fut].split("/")[0]
+            res = fut.result()
+            if res:
+                scanned.append(res)
+            ph.markdown(
+                loader_html(f"Analyzing {name}  ({done}/{total})", done / total, "📡"),
+                unsafe_allow_html=True,
+            )
+    ph.empty()
     if scanned:
-        st.session_state['scan_data'] = pd.DataFrame(scanned)
-        st.success(f"✅ Successfully scanned all {len(scanned)} liquid assets ($300M+ & Gold)!")
+        order = {"LONG POSITION 🚀": 0, "SHORT POSITION 📉": 0}
+        d = pd.DataFrame(scanned)
+        d["_o"] = d["Signal"].map(lambda s: 0 if "POSITION" in s else 1)
+        d = d.sort_values(["_o", "Asset"]).drop(columns="_o").reset_index(drop=True)
+        st.session_state["scan_data"] = d
+        st.success(f"✅ Scanned {len(scanned)} liquid assets — TP/SL generated for every coin.")
 
-if custom_search and custom_search.strip() != "":
-    search_sym = f"{custom_search.upper().strip()}/USDT:USDT"
-    if "XAU" in custom_search.upper() or "GOLD" in custom_search.upper():
-        search_sym = "XAU/USDT:USDT"
-    
-    single_res = analyze_asset(search_sym, timeframe)
-    if single_res:
-        st.session_state['scan_data'] = pd.DataFrame([single_res])
+if do_search and custom_search.strip():
+    key = custom_search.upper().strip()
+    sym = "XAU/USDT:USDT" if ("XAU" in key or "GOLD" in key) else f"{key}/USDT:USDT"
+    ph = st.empty()
+    ph.markdown(loader_html(f"Analyzing {key}...", None, "🔎"), unsafe_allow_html=True)
+    single = analyze_asset(sym, timeframe, sl_mult, risk_reward)
+    ph.empty()
+    if single:
+        st.session_state["scan_data"] = pd.DataFrame([single])
+    else:
+        st.error(f"Could not load data for {key} on {exchange_name}.")
 
-# Display Results if available
-if 'scan_data' in st.session_state and not st.session_state['scan_data'].empty:
-    df_results = st.session_state['scan_data']
-    
-    if 'Asset' in df_results.columns:
-        st.subheader("📊 Master Market Scanner & Real-Time Funding Rates (All Coins)")
-        
-        target_columns = ['Asset', 'Price', 'Funding Rate (%)', 'CVD Flow', 'Signal', 'Buy-Side Liquidity Pool', 'Sell-Side Liquidity Pool']
-        safe_columns = [col for col in target_columns if col in df_results.columns]
-        
-        st.dataframe(df_results[safe_columns], use_container_width=True, height=350)
-        
-        # --- Funding Rate Squeeze Radar ---
+# =====================================================================
+# RESULTS
+# =====================================================================
+if "scan_data" in st.session_state and not st.session_state["scan_data"].empty:
+    df_results = st.session_state["scan_data"]
+
+    if "Asset" not in df_results.columns:
+        st.warning("Scan data format error. Please click 'Run Master Scan' again.")
+    else:
+        st.subheader("📊 Master Market Scanner")
+        cols = ["Asset", "Price", "Funding Rate (%)", "CVD Flow", "Signal", "Entry", "TP", "SL",
+                "Buy-Side Liquidity Pool", "Sell-Side Liquidity Pool"]
+        st.dataframe(df_results[[c for c in cols if c in df_results.columns]],
+                     use_container_width=True, height=350)
+
+        # ---------- TP / SL cards for every coin ----------
+        st.markdown("---")
+        st.subheader("🎯 TP / SL Trade Cards — Every Coin")
+        f1, f2 = st.columns([1, 2])
+        with f1:
+            view = st.radio("Show", ["All", "Confirmed only", "Long", "Short"], horizontal=True)
+        with f2:
+            q = st.text_input("Filter by name", value="", key="card_filter")
+        cdf = df_results.copy()
+        if view == "Confirmed only":
+            cdf = cdf[cdf["Confirmed"]]
+        elif view == "Long":
+            cdf = cdf[cdf["Direction"] == "LONG"]
+        elif view == "Short":
+            cdf = cdf[cdf["Direction"] == "SHORT"]
+        if q.strip():
+            cdf = cdf[cdf["Asset"].str.contains(q.strip(), case=False)]
+        st.caption(f"{len(cdf)} setups  |  🚀/📉 = confirmed breakout, 👀 WATCH = early setup (wait for breakout)")
+        if len(cdf):
+            st.markdown(trade_cards_html(cdf), unsafe_allow_html=True)
+        else:
+            st.info("No setups match this filter.")
+
+        # ---------- Funding radar ----------
         st.markdown("---")
         st.subheader("🔥 Real-Time Funding Rate Squeeze Radar")
-        col_fr1, col_fr2 = st.columns(2)
-        
-        with col_fr1:
-            st.markdown("#### 🚀 Highest Positive Funding Rates (Long Squeeze Risk)")
-            high_fr = df_results.sort_values(by="Funding Rate (%)", ascending=False).head(3)
-            for idx, row in high_fr.iterrows():
-                st.markdown(f"• **{row['Asset']}**: `{row['Funding Rate (%)']}%` (Price: `${row['Price']}`)".replace("$$", "$"))
-                
-        with col_fr2:
-            st.markdown("#### 📉 Most Negative Funding Rates (Short Squeeze Risk)")
-            low_fr = df_results.sort_values(by="Funding Rate (%)", ascending=True).head(3)
-            for idx, row in low_fr.iterrows():
-                st.markdown(f"• **{row['Asset']}**: `{row['Funding Rate (%)']}%` (Price: `${row['Price']}`)".replace("$$", "$"))
+        fa, fb = st.columns(2)
+        with fa:
+            st.markdown("#### 🚀 Highest Positive Funding (Long Squeeze Risk)")
+            for _, row in df_results.sort_values("Funding Rate (%)", ascending=False).head(3).iterrows():
+                st.markdown(f"• **{row['Asset']}**: `{row['Funding Rate (%)']}%` (Price: `${row['Price']}`)")
+        with fb:
+            st.markdown("#### 📉 Most Negative Funding (Short Squeeze Risk)")
+            for _, row in df_results.sort_values("Funding Rate (%)", ascending=True).head(3).iterrows():
+                st.markdown(f"• **{row['Asset']}**: `{row['Funding Rate (%)']}%` (Price: `${row['Price']}`)")
 
+        # ---------- Detail ----------
         st.markdown("---")
         st.subheader("🎯 Detailed Chart, DOM, Liquidity Heatmap & Risk Calculator")
-        
-        asset_list = df_results['Asset'].tolist()
-        selected_asset = st.selectbox("Select Asset to view Analysis & Charts:", asset_list)
-        
+        selected_asset = st.selectbox("Select Asset to view Analysis & Charts:", df_results["Asset"].tolist())
+
         if selected_asset:
-            asset_row = df_results[df_results['Asset'] == selected_asset].iloc[0]
-            raw_sym = asset_row['RawSymbol']
-            
-            # Layout Tabs for TradingView, DOM, and Heatmap
-            tab_chart, tab_dom, tab_heatmap = st.tabs(["📈 TradingView Live Chart", "📊 DOM / Depth Chart", "🔥 Liquidity Heatmap"])
-            
+            asset_row = df_results[df_results["Asset"] == selected_asset].iloc[0]
+            raw_sym = asset_row["RawSymbol"]
+
+            tab_chart, tab_dom, tab_heat = st.tabs(["📈 TradingView Live Chart", "📊 DOM / Depth Chart", "🔥 Liquidity Heatmap"])
+
             with tab_chart:
-                st.markdown(f"### Live Chart: `{selected_asset}`")
                 if selected_asset == "GOLD (XAU)":
-                    tv_symbol_str = "OANDA:XAUUSD"
+                    tv_symbol = "OANDA:XAUUSD"
                 else:
-                    tv_exchange = "BYBIT" if exchange_name == "BYBIT" else "MEXC"
-                    tv_symbol_str = f"{tv_exchange}:{selected_asset}USDT"
-                
-                tradingview_html = """<!DOCTYPE html>
-<html>
-<head></head>
+                    tv_symbol = f"{exchange_name}:{selected_asset}USDT"
+                tv_html = """<!DOCTYPE html><html><head></head>
 <body style="margin:0;background-color:#131722;">
-    <div class="tradingview-widget-container" style="height:500px;width:100%">
-      <div id="tradingview_widget" style="height:100%;width:100%"></div>
-      <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-      <script type="text/javascript">
-      new TradingView.widget(
-      {
-        "autosize": true,
-        "symbol": "TV_SYMBOL_PLACEHOLDER",
-        "interval": "15",
-        "timezone": "Etc/UTC",
-        "theme": "dark",
-        "style": "1",
-        "locale": "en",
-        "toolbar_bg": "#f1f3f6",
-        "enable_publishing": false,
-        "hide_side_toolbar": false,
-        "allow_symbol_change": true,
-        "details": true,
-        "studies": [
-          "Funding_Rate@tv-basicstudies",
-          "VolumeProfile@tv-basicstudies"
-        ],
-        "container_id": "tradingview_widget"
-      });
-      </script>
-    </div>
-</body>
-</html>""".replace("TV_SYMBOL_PLACEHOLDER", tv_symbol_str)
-                components.html(tradingview_html, height=520)
-                
+<div class="tradingview-widget-container" style="height:500px;width:100%">
+<div id="tradingview_widget" style="height:100%;width:100%"></div>
+<script src="https://s3.tradingview.com/tv.js"></script>
+<script>
+new TradingView.widget({
+ "autosize": true, "symbol": "TV_SYMBOL_PLACEHOLDER", "interval": "15",
+ "timezone": "Etc/UTC", "theme": "dark", "style": "1", "locale": "en",
+ "enable_publishing": false, "hide_side_toolbar": false, "allow_symbol_change": true,
+ "details": true, "container_id": "tradingview_widget"
+});
+</script></div></body></html>""".replace("TV_SYMBOL_PLACEHOLDER", tv_symbol)
+                components.html(tv_html, height=520)
+
             with tab_dom:
-                st.markdown(f"### 📊 Depth of Market (DOM) / Order Book: `{selected_asset}`")
+                with st.spinner("Loading order book..."):
+                    try:
+                        ob = exchange.fetch_order_book(raw_sym, limit=25)
+                        bids = pd.DataFrame(ob["bids"], columns=["Price", "Amount"])
+                        asks = pd.DataFrame(ob["asks"], columns=["Price", "Amount"])
+                        bids["Cumulative"] = bids["Amount"].cumsum()
+                        asks["Cumulative"] = asks["Amount"].cumsum()
+                        fig = go.Figure()
+                        fig.add_trace(go.Scatter(x=bids["Price"], y=bids["Cumulative"], name="Bids (Buy Wall)",
+                                                 fill="tozeroy", line_color="green"))
+                        fig.add_trace(go.Scatter(x=asks["Price"], y=asks["Cumulative"], name="Asks (Sell Wall)",
+                                                 fill="tozeroy", line_color="red"))
+                        fig.update_layout(title=f"Order Book Depth ({selected_asset})", template="plotly_dark",
+                                          height=450, xaxis_title="Price", yaxis_title="Cumulative Volume")
+                        st.plotly_chart(fig, use_container_width=True)
+                    except Exception:
+                        st.warning("Could not fetch real-time DOM order book for this asset right now.")
+
+            with tab_heat:
+                st.caption("Estimated liquidation clusters (illustrative model, not real exchange liquidation data).")
                 try:
-                    order_book = exchange.fetch_order_book(raw_sym, limit=25)
-                    bids = pd.DataFrame(order_book['bids'], columns=['Price', 'Amount'])
-                    asks = pd.DataFrame(order_book['asks'], columns=['Price', 'Amount'])
-                    
-                    bids['Cumulative'] = bids['Amount'].cumsum()
-                    asks['Cumulative'] = asks['Amount'].cumsum()
-                    
-                    fig_dom = go.Figure()
-                    fig_dom.add_trace(go.Scatter(x=bids['Price'], y=bids['Cumulative'], name='Bids (Buy Wall)', fill='tozeroy', line_color='green'))
-                    fig_dom.add_trace(go.Scatter(x=asks['Price'], y=asks['Cumulative'], name='Asks (Sell Wall)', fill='tozeroy', line_color='red'))
-                    fig_dom.update_layout(title=f"Order Book Depth ({selected_asset})", template="plotly_dark", height=450, xaxis_title="Price", yaxis_title="Cumulative Volume")
-                    st.plotly_chart(fig_dom, use_container_width=True)
-                except Exception as e:
-                    st.warning("Could not fetch real-time DOM order book for this asset right now.")
-                    
-            with tab_heatmap:
-                st.markdown(f"### 🔥 Whale Leverage Liquidity Heatmap: `{selected_asset}`")
-                st.caption("Estimated Liquidation Clusters across 10x, 25x, 50x, and 100x leverage tiers.")
-                try:
-                    curr_p = asset_row['Price']
-                    leverages = [10, 25, 50, 100]
-                    heatmap_prices = []
-                    heatmap_liquidity = []
-                    
-                    for lev in leverages:
-                        long_liq = curr_p * (1 - (0.9 / lev))
-                        short_liq = curr_p * (1 + (0.9 / lev))
-                        
-                        heatmap_prices.extend([long_liq, short_liq])
-                        heatmap_liquidity.extend([lev * 15000, lev * 20000])
-                        
-                    df_heat = pd.DataFrame({'Price': heatmap_prices, 'Liquidity': heatmap_liquidity})
-                    
-                    fig_heat = px.density_heatmap(df_heat, x="Price", y="Liquidity", nbinsx=20, title=f"Estimated Liquidation Heatmap Zones ({selected_asset})", color_continuous_scale="Viridis")
-                    fig_heat.update_layout(template="plotly_dark", height=450)
-                    st.plotly_chart(fig_heat, use_container_width=True)
-                except Exception as e:
+                    p = float(asset_row["Price"])
+                    prices, liq = [], []
+                    for lev in [10, 25, 50, 100]:
+                        prices.extend([p * (1 - 0.9 / lev), p * (1 + 0.9 / lev)])
+                        liq.extend([lev * 15000, lev * 20000])
+                    dfh = pd.DataFrame({"Price": prices, "Liquidity": liq})
+                    fig = px.density_heatmap(dfh, x="Price", y="Liquidity", nbinsx=20,
+                                             title=f"Estimated Liquidation Zones ({selected_asset})",
+                                             color_continuous_scale="Viridis")
+                    fig.update_layout(template="plotly_dark", height=450)
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception:
                     st.warning("Could not render heatmap for this asset.")
 
-            # --- RISK CALCULATOR & TP/SL PANEL ---
+            # ---------- Setup + Risk calc ----------
             st.markdown("---")
             st.subheader("🧮 AI Setup, TP/SL & Risk Calculator")
-            
             col_setup, col_calc = st.columns(2)
-            
+            entry_p, tp_p, sl_p = float(asset_row["Entry"]), float(asset_row["TP"]), float(asset_row["SL"])
+
             with col_setup:
                 st.info(f"Signal: **{asset_row['Signal']}**")
-                entry_p = asset_row['Entry']
-                tp_p = asset_row['TP']
-                sl_p = asset_row['SL']
-                
-                st.metric(label="Real-Time Funding Rate", value=f"{asset_row['Funding Rate (%)']}%")
-                
-                is_valid_signal = "NEUTRAL" not in asset_row['Signal'] and entry_p > 0 and sl_p > 0
-                if is_valid_signal:
-                    st.success(f"**🎯 Entry Price:** `${entry_p:,.4f}`\n\n**🟢 Take Profit (TP):** `${tp_p:,.4f}`\n\n**🔴 Stop Loss (SL):** `${sl_p:,.4f}`")
-                    st.markdown(f"🔴 **Buy-Side Liquidity Pool:** `${asset_row['Buy-Side Liquidity Pool']:,.4f}`")
-                    st.markdown(f"🟢 **Sell-Side Liquidity Pool:** `${asset_row['Sell-Side Liquidity Pool']:,.4f}`")
-                else:
-                    st.warning("Market is in Neutral range. Wait for breakout of Liquidity Pools.")
-                    
+                st.metric("Real-Time Funding Rate", f"{asset_row['Funding Rate (%)']}%")
+                st.success(
+                    f"**🎯 Entry Price:** `${entry_p:,.4f}`\n\n"
+                    f"**🟢 Take Profit (TP):** `${tp_p:,.4f}`\n\n"
+                    f"**🔴 Stop Loss (SL):** `${sl_p:,.4f}`"
+                )
+                if not asset_row["Confirmed"]:
+                    st.warning("👀 WATCH setup — breakout not confirmed yet. Wait for price to break the liquidity pool.")
+                st.markdown(f"🔴 **Buy-Side Liquidity Pool:** `${asset_row['Buy-Side Liquidity Pool']:,.4f}`")
+                st.markdown(f"🟢 **Sell-Side Liquidity Pool:** `${asset_row['Sell-Side Liquidity Pool']:,.4f}`")
+
             with col_calc:
                 balance = st.number_input("Account Balance (USDT)", min_value=10.0, value=1000.0, step=50.0)
-                risk_pct = st.slider("Risk Tolerance (%)", min_value=0.5, max_value=5.0, value=1.0, step=0.5)
+                risk_pct = st.slider("Risk Tolerance (%)", 0.5, 5.0, 1.0, 0.5)
                 leverage = st.selectbox("Leverage (x)", [1, 2, 5, 10, 20, 50], index=3)
-                
-                is_valid_signal = "NEUTRAL" not in asset_row['Signal'] and entry_p > 0 and sl_p > 0
-                if is_valid_signal:
-                    risk_amount_usdt = balance * (risk_pct / 100.0)
-                    price_diff = abs(entry_p - sl_p)
-                    
-                    if price_diff > 0:
-                        position_size_tokens = risk_amount_usdt / price_diff
-                        position_size_usdt = position_size_tokens * entry_p
-                        margin_required = position_size_usdt / leverage
-                        tp_diff = abs(tp_p - entry_p)
-                        potential_profit = position_size_tokens * tp_diff
-                        
-                        st.markdown(f"💰 **Position Size:** `{position_size_tokens:,.2f} {selected_asset}` (`${position_size_usdt:,.2f} USDT`)")
-                        st.markdown(f"⚠️ **Margin Required ({leverage}x):** `${margin_required:,.2f} USDT`")
-                        st.markdown(f"🛑 **Max Risk Loss:** `${risk_amount_usdt:,.2f} USDT` ({risk_pct}%)")
-                        st.markdown(f"🏆 **Target Profit:** `${potential_profit:,.2f} USDT`")
-    else:
-        st.warning("Scan data format error. Please click 'Run Master Scan' again.")
+                price_diff = abs(entry_p - sl_p)
+                if price_diff > 0:
+                    risk_usdt = balance * risk_pct / 100.0
+                    size_tokens = risk_usdt / price_diff
+                    size_usdt = size_tokens * entry_p
+                    margin = size_usdt / leverage
+                    profit = size_tokens * abs(tp_p - entry_p)
+                    st.markdown(f"💰 **Position Size:** `{size_tokens:,.4f} {selected_asset}` (`${size_usdt:,.2f} USDT`)")
+                    st.markdown(f"⚠️ **Margin Required ({leverage}x):** `${margin:,.2f} USDT`")
+                    st.markdown(f"🛑 **Max Risk Loss:** `${risk_usdt:,.2f} USDT` ({risk_pct}%)")
+                    st.markdown(f"🏆 **Target Profit:** `${profit:,.2f} USDT`")
 else:
-    st.info("👆 Type any asset in the search box above (e.g. `XAU`, `BTC`, `SOL`, `PEPE`) or click **'Run Master Scan (Scan ALL $300M+ Coins & Gold)'** to start scanning the entire market.")
+    st.info("👆 Type any asset in the search box above (e.g. `XAU`, `BTC`, `SOL`, `PEPE`) and press **Search**, "
+            "or click **'Run Master Scan'** to scan the entire market.")
