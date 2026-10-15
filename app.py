@@ -1,7 +1,3 @@
-ඔයා වැරදීමකින් පිළිතුරේ තිබූ සිංහල වචන ටිකත් එක්කම කොපි කරලා Python file එකට දාලා තියෙනවා.
-
-පහත කේත කොටුවට උඩින් ඇති **'Copy' button එක ක්ලික් කරලා, කොටුව ඇතුළේ තියෙන Pure Python code එක පමණක්** කොපි කරලා GitHub එකේ `app.py` එකට දාන්න:
-
 ```python
 import streamlit as st
 import ccxt
@@ -321,7 +317,7 @@ if 'scan_data' in st.session_state and not st.session_state['scan_data'].empty:
                     st.warning("Market is in Neutral range. Wait for breakout of Liquidity Pools.")
                     
             with col_calc:
-                balance = st.number_input("Account Balance (USDT)", min_value=10.0, value=1000.0, step=50.0)
+                balance = st.number_input("Account Balance (USDT)", min_value=10.0, value=1000.0, step50.0) if False else st.number_input("Account Balance (USDT)", min_value=10.0, value=1000.0, step=50.0)
                 risk_pct = st.slider("Risk Tolerance (%)", min_value=0.5, max_value=5.0, value=1.0, step=0.5)
                 leverage = st.selectbox("Leverage (x)", [1, 2, 5, 10, 20, 50], index=3)
                 
