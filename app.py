@@ -3,17 +3,18 @@ import ccxt
 import pandas as pd
 import numpy as np
 import requests
+import plotly.graph_objects as go
 import streamlit.components.v1 as components
 
 # Page Configuration
 st.set_page_config(
-    page_title="AI Pro Crypto & Gold Liquidity Terminal",
-    page_icon="👑",
+    page_title="AI Pro Crypto & Gold Terminal (DOM & Heatmap)",
+    page_icon="⚡",
     layout="wide"
 )
 
-st.title("👑 AI Pro Crypto & Gold Liquidity Terminal")
-st.caption("Gold (XAU) & Crypto | $300M+ Liquid Coins | Liquidity Pools & Whale Zones | Risk Calculator")
+st.title("⚡ AI Pro Crypto & Gold Terminal (DOM, Heatmap & Risk)")
+st.caption("Gold (XAU) & $300M+ Crypto | DOM Depth Chart | Liquidity Heatmap | AI Signals & TP/SL")
 
 # Sidebar Settings
 st.sidebar.header("⚙️ Market & Strategy Settings")
@@ -31,7 +32,7 @@ def get_exchange(name):
 
 exchange = get_exchange(exchange_name)
 
-# Fetch Top Coins with Market Cap > $300M from CoinGecko + Gold (XAU)
+# Fetch Top Coins with Market Cap > $300M + Gold (XAU)
 @st.cache_data(ttl=600)
 def get_top_assets():
     try:
@@ -63,7 +64,7 @@ def calculate_atr(df, length=14):
     true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
     return true_range.rolling(window=length).mean()
 
-# Advanced Analysis & Liquidity Pool Detection
+# Advanced Analysis & Liquidity Heatmap Data
 def analyze_asset(symbol, tf):
     try:
         fetch_sym = "PAXG/USDT:USDT" if "XAU" in symbol else symbol
@@ -112,7 +113,7 @@ def analyze_asset(symbol, tf):
         
         return {
             "Asset": display_name,
-            "RawSymbol": symbol,
+            "RawSymbol": fetch_sym,
             "Price": round(last_close, 4),
             "Funding Rate (%)": round(funding_rate, 4),
             "CVD Flow": "BULLISH 🟢" if cvd_bullish else "BEARISH 🔴",
@@ -134,7 +135,6 @@ run_scan = st.button("🚀 Run Master Scan ($300M+ Coins & Gold)")
 
 assets = get_top_assets()
 
-# Handle Master Scan button
 if run_scan:
     with st.spinner("Scanning all $300M+ coins and Gold (XAU), calculating liquidity pools & funding rates..."):
         scanned = []
@@ -146,7 +146,6 @@ if run_scan:
             st.session_state['scan_data'] = pd.DataFrame(scanned)
             st.success("✅ Scan Completed Successfully!")
 
-# Handle direct custom search
 if custom_search and custom_search.strip() != "":
     search_sym = f"{custom_search.upper().strip()}/USDT:USDT"
     if "XAU" in custom_search.upper() or "GOLD" in custom_search.upper():
@@ -166,22 +165,23 @@ if 'scan_data' in st.session_state and not st.session_state['scan_data'].empty:
         target_columns = ['Asset', 'Price', 'Funding Rate (%)', 'CVD Flow', 'Signal', 'Buy-Side Liquidity Pool', 'Sell-Side Liquidity Pool']
         safe_columns = [col for col in target_columns if col in df_results.columns]
         
-        st.dataframe(df_results[safe_columns], use_container_width=True, height=350)
+        st.dataframe(df_results[safe_columns], use_container_width=True, height=330)
         
         st.markdown("---")
-        st.subheader("🎯 Detailed Chart, Whale Liquidity Pools & Risk Calculator")
+        st.subheader("🎯 Detailed Chart, DOM, Liquidity Heatmap & Risk Calculator")
         
         asset_list = df_results['Asset'].tolist()
-        selected_asset = st.selectbox("Select Asset to view TradingView Chart & Liquidity Analysis:", asset_list)
+        selected_asset = st.selectbox("Select Asset to view Analysis & Charts:", asset_list)
         
         if selected_asset:
             asset_row = df_results[df_results['Asset'] == selected_asset].iloc[0]
+            raw_sym = asset_row['RawSymbol']
             
-            col_chart, col_calc = st.columns([1.3, 0.7])
+            # Layout Tabs for TradingView, DOM, and Heatmap
+            tab_chart, tab_dom, tab_heatmap = st.tabs(["📈 TradingView Live Chart", "📊 DOM / Depth Chart", "🔥 Liquidity Heatmap"])
             
-            with col_chart:
+            with tab_chart:
                 st.markdown(f"### Live Chart: `{selected_asset}`")
-                
                 if selected_asset == "GOLD (XAU)":
                     tv_symbol_str = "OANDA:XAUUSD"
                 else:
@@ -193,7 +193,7 @@ if 'scan_data' in st.session_state and not st.session_state['scan_data'].empty:
                 <html>
                 <head></head>
                 <body style="margin:0;background-color:#131722;">
-                    <div class="tradingview-widget-container" style="height:520px;width:100%">
+                    <div class="tradingview-widget-container" style="height:500px;width:100%">
                       <div id="tradingview_widget" style="height:100%;width:100%"></div>
                       <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
                       <script type="text/javascript">
@@ -222,26 +222,76 @@ if 'scan_data' in st.session_state and not st.session_state['scan_data'].empty:
                 </body>
                 </html>
                 """.replace("TV_SYMBOL_PLACEHOLDER", tv_symbol_str)
+                components.html(tradingview_html, height=520)
                 
-                components.html(tradingview_html, height=540)
-                
-            with col_calc:
-                st.markdown(f"### 🌊 Whale Liquidity Pools & Setup")
+            with tab_dom:
+                st.markdown(f"### 📊 Depth of Market (DOM) / Order Book: `{selected_asset}`")
+                try:
+                    order_book = exchange.fetch_order_book(raw_sym, limit=25)
+                    bids = pd.DataFrame(order_book['bids'], columns=['Price', 'Amount'])
+                    asks = pd.DataFrame(order_book['asks'], columns=['Price', 'Amount'])
+                    
+                    bids['Cumulative'] = bids['Amount'].cumsum()
+                    asks['Cumulative'] = asks['Amount'].cumsum()
+                    
+                    fig_dom = go.Figure()
+                    fig_dom.add_trace(go.Scatter(x=bids['Price'], y=bids['Cumulative'], name='Bids (Buy Wall)', fill='tozeroy', line_color='green'))
+                    fig_dom.add_trace(go.Scatter(x=asks['Price'], y=asks['Cumulative'], name='Asks (Sell Wall)', fill='tozeroy', line_color='red'))
+                    fig_dom.update_layout(title=f"Order Book Depth ({selected_asset})", template="plotly_dark", height=450, xaxis_title="Price", yaxis_title="Cumulative Volume")
+                    st.plotly_chart(fig_dom, use_container_width=True)
+                except Exception as e:
+                    st.warning("Could not fetch real-time DOM order book for this asset right now.")
+                    
+            with tab_heatmap:
+                st.markdown(f"### 🔥 Whale Leverage Liquidity Heatmap: `{selected_asset}`")
+                st.caption("Estimated Liquidation Clusters across 10x, 25x, 50x, and 100x leverage tiers.")
+                try:
+                    curr_p = asset_row['Price']
+                    # Simulate liquidation heatmap levels based on current price and leverage tiers
+                    leverages = [10, 25, 50, 100]
+                    heatmap_prices = []
+                    heatmap_liquidity = []
+                    
+                    for lev in leverages:
+                        # Long liquidation price drops below current price
+                        long_liq = curr_p * (1 - (0.9 / lev))
+                        # Short liquidation price rises above current price
+                        short_liq = curr_p * (1 + (0.9 / lev))
+                        
+                        heatmap_prices.extend([long_liq, short_liq])
+                        heatmap_liquidity.extend([lev * 15000, lev * 20000]) # weighted volume representation
+                        
+                    df_heat = pd.DataFrame({'Price': heatmap_prices, 'Liquidity': heatmap_liquidity})
+                    
+                    fig_heat = px.density_heatmap(df_heat, x="Price", y="Liquidity", nbinsx=20, title=f"Estimated Liquidation Heatmap Zones ({selected_asset})", color_continuous_scale="Viridis")
+                    fig_heat.update_layout(template="plotly_dark", height=450)
+                    st.plotly_chart(fig_heat, use_container_width=True)
+                except Exception as e:
+                    st.warning("Could not render heatmap for this asset.")
+
+            # --- RISK CALCULATOR & TP/SL PANEL ---
+            st.markdown("---")
+            st.subheader("🧮 AI Setup, TP/SL & Risk Calculator")
+            
+            col_setup, col_calc = st.columns(2)
+            
+            with col_setup:
                 st.info(f"Signal: **{asset_row['Signal']}**")
-                
-                st.markdown(f"🔴 **Buy-Side Liquidity (Short SL Pool):** `${asset_row['Buy-Side Liquidity Pool']:,.4f}`")
-                st.markdown(f"🟢 **Sell-Side Liquidity (Long SL Pool):** `${asset_row['Sell-Side Liquidity Pool']:,.4f}`")
-                st.caption("💡 *Whalesලා සාමාන්‍යයෙන් මේ Liquidity Pools Sweep කරලා තමයි Reversal එකක් දෙන්නේ.*")
-                
-                st.markdown("---")
-                st.markdown("### 🧮 Risk & Position Calculator")
-                balance = st.number_input("Account Balance (USDT)", min_value=10.0, value=1000.0, step=50.0)
-                risk_pct = st.slider("Risk Tolerance (%)", min_value=0.5, max_value=5.0, value=1.0, step=0.5)
-                leverage = st.selectbox("Leverage (x)", [1, 2, 5, 10, 20, 50], index=3)
-                
                 entry_p = asset_row['Entry']
                 tp_p = asset_row['TP']
                 sl_p = asset_row['SL']
+                
+                if "NEUTRAL" not in asset_row['Signal'] and entry_p > 0 and sl_p > 0:
+                    st.success(f"**🎯 Entry Price:** `${entry_p:,.4f}`\n\n**🟢 Take Profit (TP):** `${tp_p:,.4f}`\n\n**🔴 Stop Loss (SL):** `${sl_p:,.4f}`")
+                    st.markdown(f"🔴 **Buy-Side Liquidity Pool:** `${asset_row['Buy-Side Liquidity Pool']:,.4f}`")
+                    st.markdown(f"🟢 **Sell-Side Liquidity Pool:** `${asset_row['Sell-Side Liquidity Pool']:,.4f}`")
+                else:
+                    st.warning("Market is in Neutral range. Wait for breakout of Liquidity Pools.")
+                    
+            with col_calc:
+                balance = st.number_input("Account Balance (USDT)", min_value=10.0, value=1000.0, step=50.0)
+                risk_pct = st.slider("Risk Tolerance (%)", min_value=0.5, max_value=5.0, value=1.0, step=0.5)
+                leverage = st.selectbox("Leverage (x)", [1, 2, 5, 10, 20, 50], index=3)
                 
                 if "NEUTRAL" not in asset_row['Signal'] and entry_p > 0 and sl_p > 0:
                     risk_amount_usdt = balance * (risk_pct / 100.0)
@@ -251,19 +301,13 @@ if 'scan_data' in st.session_state and not st.session_state['scan_data'].empty:
                         position_size_tokens = risk_amount_usdt / price_diff
                         position_size_usdt = position_size_tokens * entry_p
                         margin_required = position_size_usdt / leverage
-                        
                         tp_diff = abs(tp_p - entry_p)
                         potential_profit = position_size_tokens * tp_diff
                         
-                        st.markdown(f"**🎯 Entry:** `${entry_p:,.4f}` | **TP:** `${tp_p:,.4f}` | **SL:** `${sl_p:,.4f}`")
-                        st.success(f"💰 **Position Size:** `{position_size_tokens:,.2f} {selected_asset}` (`${position_size_usdt:,.2f} USDT`)")
-                        st.warning(f"⚠️ **Margin Required ({leverage}x):** `${margin_required:,.2f} USDT`")
-                        st.error(f"🛑 **Max Risk Loss:** `${risk_amount_usdt:,.2f} USDT` ({risk_pct}%)")
-                        st.info(f"🏆 **Target Profit:** `${potential_profit:,.2f} USDT`")
-                    else:
-                        st.warning("Invalid SL range.")
-                else:
-                    st.warning("Market is in Neutral range. Wait for breakout of Liquidity Pools.")
+                        st.markdown(f"💰 **Position Size:** `{position_size_tokens:,.2f} {selected_asset}` (`${position_size_usdt:,.2f} USDT`)")
+                        st.markdown(f"⚠️ **Margin Required ({leverage}x):** `${margin_required:,.2f} USDT`")
+                        st.markdown(f"🛑 **Max Risk Loss:** `${risk_amount_usdt:,.2f} USDT` ({risk_pct}%)")
+                        st.markdown(f"🏆 **Target Profit:** `${potential_profit:,.2f} USDT`")
     else:
         st.warning("Scan data format error. Please click 'Run Master Scan' again.")
 else:
