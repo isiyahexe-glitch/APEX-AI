@@ -180,13 +180,13 @@ if 'scan_data' in st.session_state and not st.session_state['scan_data'].empty:
             st.markdown("#### 🚀 Highest Positive Funding Rates (Long Squeeze Risk)")
             high_fr = df_results.sort_values(by="Funding Rate (%)", ascending=False).head(3)
             for idx, row in high_fr.iterrows():
-                st.markdown(f"• **{row['Asset']}**: `{row['Funding Rate (%)']}%` (Price: ${row['Price']})")
+                st.markdown(f"• **{row['Asset']}**: `{row['Funding Rate (%)']}%` (Price: `${row['Price']}`)".replace("$$", "$"))
                 
         with col_fr2:
             st.markdown("#### 📉 Most Negative Funding Rates (Short Squeeze Risk)")
             low_fr = df_results.sort_values(by="Funding Rate (%)", ascending=True).head(3)
             for idx, row in low_fr.iterrows():
-                st.markdown(f"• **{row['Asset']}**: `{row['Funding Rate (%)']}%` (Price: ${row['Price']})")
+                st.markdown(f"• **{row['Asset']}**: `{row['Funding Rate (%)']}%` (Price: `${row['Price']}`)".replace("$$", "$"))
 
         st.markdown("---")
         st.subheader("🎯 Detailed Chart, DOM, Liquidity Heatmap & Risk Calculator")
@@ -300,5 +300,3 @@ if 'scan_data' in st.session_state and not st.session_state['scan_data'].empty:
                 sl_p = asset_row['SL']
                 
                 st.metric(label="Real-Time Funding Rate", value=f"{asset_row['Funding Rate (%)']}%")
-                
-                if "NEUTRAL" not in asset_row['Signal'] and entry_p >
