@@ -219,35 +219,3 @@ if 'scan_data' in st.session_state:
                   </script>
                 </div>
             </body>
-            </html>
-            """
-            components.html(tradingview_html, height=540)
-            
-        with col_calc:
-            st.markdown(f"### 🌊 Whale Liquidity Pools & Setup")
-            st.info(f"Signal: **{asset_row['Signal']}**")
-            
-            st.markdown(f"🔴 **Buy-Side Liquidity (Short SL Pool):** `${asset_row['Buy-Side Liquidity Pool']:,.4f}`")
-            st.markdown(f"🟢 **Sell-Side Liquidity (Long SL Pool):** `${asset_row['Sell-Side Liquidity Pool']:,.4f}`")
-            st.caption("💡 *Whalesලා සාමාන්‍යයෙන් මේ Liquidity Pools Sweep කරලා තමයි Reversal එකක් දෙන්නේ.*")
-            
-            st.markdown("---")
-            st.markdown("### 🧮 Risk & Position Calculator")
-            balance = st.number_input("Account Balance (USDT)", min_value=10.0, value=1000.0, step=50.0)
-            risk_pct = st.slider("Risk Tolerance (%)", min_value=0.5, max_value=5.0, value=1.0, step=0.5)
-            leverage = st.selectbox("Leverage (x)", [1, 2, 5, 10, 20, 50], index=3)
-            
-            entry_p = asset_row['Entry']
-            tp_p = asset_row['TP']
-            sl_p = asset_row['SL']
-            
-            if "NEUTRAL" not in asset_row['Signal'] and entry_p > 0 and sl_p > 0:
-                risk_amount_usdt = balance * (risk_pct / 100.0)
-                price_diff = abs(entry_p - sl_p)
-                
-                if price_diff > 0:
-                    position_size_tokens = risk_amount_usdt / price_diff
-                    position_size_usdt = position_size_tokens * entry_p
-                    margin_required = position_size_usdt / leverage
-                    
-                    tp_diff = abs(tp_p
