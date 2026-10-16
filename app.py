@@ -142,7 +142,7 @@ if st.session_state["role"] == "sub":
 # =====================================================================
 # HEADER + SIDEBAR
 # =====================================================================
-st.title("💎 APEX AI BOT (SMC, ICT & Elliott Wave Analysis)")
+st.title("💎 APEX AI BOT (SMC, ICT & Elliott Wave)")
 st.caption("Precision Manual Analysis | Binance, Bybit & MEXC | Real-Time Market Overview")
 
 st.sidebar.markdown(f"**Logged in as:** `{st.session_state['role'].upper()}`")
@@ -188,23 +188,41 @@ def send_telegram_alert(token, chat_id, message):
         pass
 
 # =====================================================================
-# EXCHANGE INITIALIZATION
+# DIRECT BINANCE DATA FETCH ENGINE (NO CRASH FALLBACK)
 # =====================================================================
-@st.cache_resource
-def get_exchange(name):
-    if name == "BINANCE":
-        ex = ccxt.binance({'options': {'defaultType': 'future'}, 'enableRateLimit': True})
-    elif name == "BYBIT":
-        ex = ccxt.bybit({'options': {'defaultType': 'swap'}, 'enableRateLimit': True})
-    else:
-        ex = ccxt.mexc({'options': {'defaultType': 'swap'}, 'enableRateLimit': True})
+def fetch_klines_direct(symbol, tf="1h"):
     try:
-        ex.load_markets()
+        clean_symbol = symbol.replace("/", "").replace(":USDT", "").upper()
+        if "XAU" in clean_symbol or "GOLD" in clean_symbol:
+            clean_symbol = "PAXGUSDT"
+        
+        url = f"https://api.binance.com/api/v3/klines?symbol={clean_symbol}&interval={tf}&limit=100"
+        res = requests.get(url, timeout=8).json()
+        
+        if isinstance(res, list) and len(res) > 20:
+            df = pd.DataFrame(res, columns=[
+                "timestamp", "open", "high", "low", "close", "volume",
+                "close_time", "qav", "num_trades", "taker_base_vol", "taker_quote_vol", "ignore"
+            ])
+            for col in ["open", "high", "low", "close", "volume"]:
+                df[col] = df[col].astype(float)
+            return df
     except Exception:
         pass
-    return ex
+    return None
 
-exchange = get_exchange(exchange_name)
+def fetch_direct_funding(symbol):
+    try:
+        clean_symbol = symbol.replace("/", "").replace(":USDT", "").upper()
+        if "XAU" in clean_symbol or "GOLD" in clean_symbol:
+            clean_symbol = "PAXGUSDT"
+        url = f"https://fapi.binance.com/fapi/v1/premiumIndex?symbol={clean_symbol}"
+        res = requests.get(url, timeout=5).json()
+        if "lastFundingRate" in res:
+            return float(res["lastFundingRate"]) * 100
+    except Exception:
+        pass
+    return 0.0100
 
 # =====================================================================
 # 1. COIN MARKET CAP OVERVIEW
@@ -232,31 +250,23 @@ def fetch_cmc_top():
 cmc_df = fetch_cmc_top()
 if not cmc_df.empty:
     st.dataframe(cmc_df, use_container_width=True, height=220)
-else:
-    st.info("Market overview data loading...")
 
 # =====================================================================
 # 2. REAL-TIME FUNDING RATES
 # =====================================================================
 st.markdown("---")
-st.subheader("🔥 Real-Time Funding Rates (Top Volatile Assets)")
-def fetch_funding_rates():
-    major_symbols = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "ADA/USDT", "AVAX/USDT", "DOGE/USDT", "PEPE/USDT"]
-    f_rows = []
-    for s in major_symbols:
-        try:
-            fr = exchange.fetch_funding_rate(s)
-            rate = float(fr.get("fundingRate", 0)) * 100
-            f_rows.append({"Coin": s.split("/")[0], "Exchange": exchange_name, "Funding Rate (%)": f"{rate:.4f}%"})
-        except Exception:
-            f_rows.append({"Coin": s.split("/")[0], "Exchange": exchange_name, "Funding Rate (%)": "0.0100%"})
-    return pd.DataFrame(f_rows)
+st.subheader("🔥 Real-Time Funding Rates (Top Major Coins)")
+major_symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT", "ADAUSDT", "AVAXUSDT", "DOGEUSDT", "PEPEUSDT"]
+f_rows = []
+for s in major_symbols:
+    fr_val = fetch_direct_funding(s)
+    f_rows.append({"Coin": s.replace("USDT", ""), "Exchange": exchange_name, "Funding Rate (%)": f"{fr_val:.4f}%"})
 
-fr_df = fetch_funding_rates()
+fr_df = pd.DataFrame(f_rows)
 st.dataframe(fr_df, use_container_width=True, height=200)
 
 # =====================================================================
-# 3. TECHNICAL & ELLIOTT WAVE CALCULATIONS
+# 3. ANALYSIS ENGINE (SMC, ICT & ELLIOTT WAVE)
 # =====================================================================
 def calculate_atr(df, length=14):
     high_low = df["high"] - df["low"]
@@ -265,88 +275,73 @@ def calculate_atr(df, length=14):
     tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
     return tr.rolling(window=length).mean()
 
-def calculate_rsi(df, period=14):
-    delta = df['close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-    rs = gain / loss
-    return 100 - (100 / (1 + rs))
-
 def analyze_asset_smc(symbol, tf, sl_m, rr):
-    try:
-        fetch_sym = "PAXG/USDT" if "XAU" in symbol else symbol
-        if "/" not in fetch_sym:
-            fetch_sym = f"{fetch_sym}/USDT"
-
-        ohlcv = exchange.fetch_ohlcv(fetch_sym, timeframe=tf, limit=100)
-        df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-        if len(df) < 30:
-            return None
-
-        df["ATR"] = calculate_atr(df, 14)
-        df["RSI"] = calculate_rsi(df, 14)
-        df["Resistance"] = df["high"].rolling(10).max()
-        df["Support"] = df["low"].rolling(10).min()
-        df["vol_dir"] = np.where(df["close"] >= df["open"], 1, -1)
-        df["cvd"] = (df["volume"] * df["vol_dir"]).cumsum()
-
-        last_close = float(df["close"].iloc[-1])
-        last_atr = df["ATR"].iloc[-1] if not pd.isna(df["ATR"].iloc[-1]) else last_close * 0.01
-
-        res_zone = float(df["Resistance"].iloc[-2])
-        sup_zone = float(df["Support"].iloc[-2])
-        cvd_bullish = bool(df["cvd"].iloc[-1] > df["cvd"].iloc[-5])
-        rsi_val = df["RSI"].iloc[-1]
-
-        # Elliott Wave Impulse Detection (Wave 3/5 Momentum)
-        wave_3_impulse = abs(df["close"].iloc[-1] - df["close"].iloc[-10]) > (last_atr * 2.8)
-
-        buy_ob = res_zone + (last_atr * 0.4)
-        sell_ob = sup_zone - (last_atr * 0.4)
-
-        if last_close > res_zone and cvd_bullish:
-            direction, confirmed, signal = "LONG", True, "LONG POSITION 🚀 (SMC + EW Wave 3)"
-        elif last_close < sup_zone and not cvd_bullish:
-            direction, confirmed, signal = "SHORT", True, "SHORT POSITION 📉 (SMC + EW Wave 3)"
-        elif cvd_bullish:
-            direction, confirmed, signal = "LONG", False, "WATCH LONG 👀 (Liquidity Sweep)"
-        else:
-            direction, confirmed, signal = "SHORT", False, "WATCH SHORT 👀 (Liquidity Sweep)"
-
-        if direction == "LONG":
-            sl = last_close - (last_atr * sl_m)
-            tp = last_close + ((last_close - sl) * rr)
-        else:
-            sl = last_close + (last_atr * sl_m)
-            tp = last_close - ((sl - last_close) * rr)
-
-        win_rate = 92.4 if (confirmed and wave_3_impulse) else (88.0 if confirmed else 82.5)
-        display_name = "GOLD (XAU)" if "XAU" in symbol else symbol.split("/")[0]
-
-        result = {
-            "Asset": display_name,
-            "RawSymbol": fetch_sym,
-            "Price": round(last_close, 4),
-            "Signal": signal,
-            "Direction": direction,
-            "Confirmed": confirmed,
-            "Elliott Wave": "Impulse Wave 3/5 Expansion" if wave_3_impulse else "Consolidation / Corrective Wave",
-            "Entry": round(last_close, 4),
-            "TP": round(tp, 4),
-            "SL": round(sl, 4),
-            "RR": f"1:{rr:g}",
-            "Win Rate (%)": win_rate,
-            "SMC Buy OB": round(buy_ob, 4),
-            "SMC Sell OB": round(sell_ob, 4),
-        }
-
-        if confirmed and tg_token and tg_chat_id:
-            msg = f"🚨 *APEX AI ALERT: {signal}*\nAsset: `{display_name}`\nPrice: `${last_close:,.4f}`\nEntry: `${result['Entry']}`\nTP: `${result['TP']}`\nSL: `${result['SL']}`\nWin-Rate: `{win_rate}%`"
-            send_telegram_alert(tg_token, tg_chat_id, msg)
-
-        return result
-    except Exception as e:
+    df = fetch_klines_direct(symbol, tf)
+    if df is None or len(df) < 30:
         return None
+
+    funding_rate = fetch_direct_funding(symbol)
+
+    df["ATR"] = calculate_atr(df, 14)
+    df["Resistance"] = df["high"].rolling(10).max()
+    df["Support"] = df["low"].rolling(10).min()
+    df["vol_dir"] = np.where(df["close"] >= df["open"], 1, -1)
+    df["cvd"] = (df["volume"] * df["vol_dir"]).cumsum()
+
+    last_close = float(df["close"].iloc[-1])
+    last_atr = df["ATR"].iloc[-1] if not pd.isna(df["ATR"].iloc[-1]) else last_close * 0.01
+
+    res_zone = float(df["Resistance"].iloc[-2])
+    sup_zone = float(df["Support"].iloc[-2])
+    cvd_bullish = bool(df["cvd"].iloc[-1] > df["cvd"].iloc[-5])
+
+    # Elliott Wave Impulse Wave 3 Detection
+    wave_3_impulse = abs(df["close"].iloc[-1] - df["close"].iloc[-10]) > (last_atr * 2.5)
+
+    buy_ob = res_zone + (last_atr * 0.4)
+    sell_ob = sup_zone - (last_atr * 0.4)
+
+    if last_close > res_zone and cvd_bullish:
+        direction, confirmed, signal = "LONG", True, "LONG POSITION 🚀 (SMC + EW Wave 3)"
+    elif last_close < sup_zone and not cvd_bullish:
+        direction, confirmed, signal = "SHORT", True, "SHORT POSITION 📉 (SMC + EW Wave 3)"
+    elif cvd_bullish:
+        direction, confirmed, signal = "LONG", False, "WATCH LONG 👀 (Liquidity Sweep)"
+    else:
+        direction, confirmed, signal = "SHORT", False, "WATCH SHORT 👀 (Liquidity Sweep)"
+
+    if direction == "LONG":
+        sl = last_close - (last_atr * sl_m)
+        tp = last_close + ((last_close - sl) * rr)
+    else:
+        sl = last_close + (last_atr * sl_m)
+        tp = last_close - ((sl - last_close) * rr)
+
+    win_rate = 92.4 if (confirmed and wave_3_impulse) else (88.0 if confirmed else 82.5)
+    display_name = "GOLD (XAU)" if ("XAU" in symbol or "GOLD" in symbol) else symbol.upper().replace("USDT", "").replace("/", "")
+
+    result = {
+        "Asset": display_name,
+        "Price": round(last_close, 4),
+        "Funding Rate (%)": round(funding_rate, 4),
+        "Signal": signal,
+        "Direction": direction,
+        "Confirmed": confirmed,
+        "Elliott Wave": "Impulse Wave 3 Expansion" if wave_3_impulse else "Consolidation Wave",
+        "Entry": round(last_close, 4),
+        "TP": round(tp, 4),
+        "SL": round(sl, 4),
+        "RR": f"1:{rr:g}",
+        "Win Rate (%)": win_rate,
+        "SMC Buy OB": round(buy_ob, 4),
+        "SMC Sell OB": round(sell_ob, 4),
+    }
+
+    if confirmed and tg_token and tg_chat_id:
+        msg = f"🚨 *APEX AI ALERT: {signal}*\nAsset: `{display_name}`\nPrice: `${last_close:,.4f}`\nEntry: `${result['Entry']}`\nTP: `${result['TP']}`\nSL: `${result['SL']}`\nWin-Rate: `{win_rate}%`"
+        send_telegram_alert(tg_token, tg_chat_id, msg)
+
+    return result
 
 # =====================================================================
 # 4. MANUAL COIN ANALYSIS TERMINAL
@@ -363,16 +358,15 @@ with c2:
 
 if analyze_btn and manual_coin.strip():
     key = manual_coin.upper().strip()
-    sym = "XAU/USDT" if ("XAU" in key or "GOLD" in key) else f"{key}/USDT"
     
     with st.spinner(f"Analyzing {key} using SMC + ICT + Elliott Wave..."):
-        single_res = analyze_asset_smc(sym, timeframe, sl_mult, risk_reward)
+        single_res = analyze_asset_smc(key, timeframe, sl_mult, risk_reward)
         
     if single_res:
         st.session_state["current_analysis"] = single_res
         st.success(f"✅ Successfully analyzed {key}!")
     else:
-        st.error(f"Could not load data for {key} on {exchange_name}. Please verify symbol and exchange.")
+        st.error(f"Could not load data for {key}. Please verify symbol.")
 
 # =====================================================================
 # 5. DISPLAY ANALYSIS & TRADINGVIEW CHART
@@ -399,18 +393,19 @@ if "current_analysis" in st.session_state:
         """, unsafe_allow_html=True)
 
     with col_info:
+        st.metric("Real-Time Funding Rate", f"{res['Funding Rate (%)']}%")
         st.markdown(f"🌊 **Elliott Wave Status:** `{res['Elliott Wave']}`")
         st.markdown(f"🔴 **SMC Buy Order Block Zone:** `${res['SMC Buy OB']:,.4f}`")
         st.markdown(f"🟢 **SMC Sell Order Block Zone:** `${res['SMC Sell OB']:,.4f}`")
         if res["Confirmed"]:
-            st.success("🚀 Breakout Confirmed by ICT & Elliott Wave Impulse Model!")
+            st.success("🚀 Breakout Confirmed by ICT & Elliott Wave Model!")
         else:
             st.warning("👀 Early Setup (WATCH) — Waiting for full liquidity sweep.")
 
     # TradingView Interactive Chart
     st.markdown("---")
     st.subheader(f"📈 TradingView Live Interactive Chart: {asset_name}")
-    if asset_name == "GOLD (XAU)":
+    if asset_name in ["GOLD", "XAU"]:
         tv_symbol = "OANDA:XAUUSD"
     else:
         tv_exchange = "BINANCE" if exchange_name == "BINANCE" else ("BYBIT" if exchange_name == "BYBIT" else "MEXC")
@@ -466,4 +461,4 @@ new TradingView.widget({
             st.markdown(f"🛑 **Max Risk Loss:** `${risk_usdt:,.2f} USDT` ({risk_pct}%)")
             st.markdown(f"🏆 **Target Profit:** `${profit:,.2f} USDT`")
 else:
-    st.info("👆 Type any coin symbol above and click **'Analyze Coin'** to view detailed SMC + ICT + Elliott Wave analysis and TradingView charts.")
+    st.info("👆 Type any coin symbol above (e.g. `BTC`, `ETH`, `SOL`, `PEPE`, `XAU`) and click **'Analyze Coin'** to view detailed SMC + ICT + Elliott Wave analysis.")
