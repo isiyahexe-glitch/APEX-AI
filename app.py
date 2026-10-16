@@ -16,7 +16,7 @@ import streamlit.components.v1 as components
 # PAGE CONFIG
 # =====================================================================
 st.set_page_config(
-    page_title="APEX AI BOT,
+    page_title="APEX AI BOT - SMC / ICT / ELLIOTT WAVE",
     page_icon="💎",
     layout="wide",
 )
@@ -571,3 +571,4 @@ new TradingView.widget({
                     st.markdown(f"🏆 **Target Profit:** `${profit:,.2f} USDT`")
 else:
     st.info("👆 Type any asset in the search box above (e.g. `XAU`, `BTC`, `SOL`, `PEPE`) or click **'Run SMC / ICT Master Scan'** to start.")
+    
