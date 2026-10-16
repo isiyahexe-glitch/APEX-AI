@@ -152,7 +152,7 @@ if st.session_state["role"] == "sub":
 # =====================================================================
 # HEADER + SIDEBAR
 # =====================================================================
-st.title("💎 APEX AI BOT (Manual Analysis & Auto-Notifications)")
+st.title("💎 APEX AI BOT (Manual Analysis & Funding Rates)")
 st.caption("Precision Manual Scanner | Binance, Bybit & MEXC | Telegram Alerts")
 
 st.sidebar.markdown(f"**Logged in as:** `{st.session_state['role'].upper()}`")
@@ -216,16 +216,6 @@ def get_exchange(name):
     return ex
 
 exchange = get_exchange(exchange_name)
-
-@st.cache_data(ttl=300)
-def get_market_overview():
-    try:
-        url = "https://api.coingecko.com/api/v3/coins/markets"
-        params = {"vs_currency": "usd", "order": "market_cap_desc", "per_page": 15, "page": 1, "sparkline": "false"}
-        data = requests.get(url, params=params, timeout=10).json()
-        return data
-    except Exception:
-        return []
 
 def calculate_atr(df, length=14):
     high_low = df["high"] - df["low"]
@@ -310,31 +300,31 @@ def analyze_asset_smc(symbol, tf, sl_m, rr):
             "SMC Sell OB": round(sell_ob, 4),
         }
 
-        # Send Telegram Auto-Notification if confirmed setup is found
         if confirmed and tg_token and tg_chat_id:
             msg = f"🚨 *APEX AI ALERT: {signal}*\nAsset: `{display_name}`\nPrice: `${last_close:,.4f}`\nEntry: `${result['Entry']}`\nTP: `${result['TP']}`\nSL: `${result['SL']}`\nWin-Rate: `{win_rate}%`"
             send_telegram_alert(tg_token, tg_chat_id, msg)
 
         return result
-    except Exception as e:
+    except Exception:
         return None
 
 # =====================================================================
-# MARKET OVERVIEW (Top Market Cap & Funding Rates)
+# REAL-TIME FUNDING RATES TABLE FOR MAJOR COINS
 # =====================================================================
-st.subheader("🔥 Market Overview & Top Market Cap Coins")
-top_coins = get_market_overview()
-if top_coins:
-    market_data = []
-    for c in top_coins:
-        market_data.append({
-            "Coin": c['name'],
-            "Symbol": c['symbol'].upper(),
-            "Price ($)": f"${c['current_price']:,.4f}",
-            "Market Cap ($)": f"${c['market_cap']:,}",
-            "24h Change (%)": f"{c['price_change_percentage_24h']:.2f}%"
-        })
-    st.dataframe(pd.DataFrame(market_data), use_container_width=True, height=220)
+st.subheader("🔥 Real-Time Funding Rates (Major Assets)")
+major_coins = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT", "ADA/USDT", "AVAX/USDT", "DOGE/USDT", "PEPE/USDT"]
+funding_rows = []
+for c in major_coins:
+    try:
+        fr_data = exchange.fetch_funding_rate(c)
+        rate = float(fr_data.get("fundingRate", 0)) * 100
+        funding_rows.append({"Asset": c.split("/")[0], "Funding Rate (%)": round(rate, 5)})
+    except Exception:
+        pass
+
+if funding_rows:
+    df_fr = pd.DataFrame(funding_rows)
+    st.dataframe(df_fr, use_container_width=True, height=180)
 
 # =====================================================================
 # MANUAL COIN SEARCH & ANALYSIS TERMINAL
