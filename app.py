@@ -203,11 +203,17 @@ def send_telegram_alert(token, chat_id, message):
 @st.cache_resource
 def get_exchange(name):
     if name == "BINANCE":
-        return ccxt.binance({'options': {'defaultType': 'future'}, 'enableRateLimit': True})
+        ex = ccxt.binance({'options': {'defaultType': 'future'}, 'enableRateLimit': True})
     elif name == "BYBIT":
-        return ccxt.bybit({'options': {'defaultType': 'swap'}, 'enableRateLimit': True})
+        ex = ccxt.bybit({'options': {'defaultType': 'swap'}, 'enableRateLimit': True})
     else:
-        return ccxt.mexc({'options': {'defaultType': 'swap'}, 'enableRateLimit': True})
+        ex = ccxt.mexc({'options': {'defaultType': 'swap'}, 'enableRateLimit': True})
+    
+    try:
+        ex.load_markets()
+    except Exception:
+        pass
+    return ex
 
 exchange = get_exchange(exchange_name)
 
@@ -230,7 +236,7 @@ def calculate_atr(df, length=14):
 
 def analyze_asset_smc(symbol, tf, sl_m, rr):
     try:
-        fetch_sym = "PAXG/USDT:USDT" if "XAU" in symbol else symbol
+        fetch_sym = "PAXG/USDT" if "XAU" in symbol else symbol
 
         funding_rate = 0.0
         try:
@@ -310,7 +316,7 @@ def analyze_asset_smc(symbol, tf, sl_m, rr):
             send_telegram_alert(tg_token, tg_chat_id, msg)
 
         return result
-    except Exception:
+    except Exception as e:
         return None
 
 # =====================================================================
@@ -345,7 +351,7 @@ with c2:
 
 if analyze_btn and manual_coin.strip():
     key = manual_coin.upper().strip()
-    sym = "XAU/USDT:USDT" if ("XAU" in key or "GOLD" in key) else f"{key}/USDT:USDT"
+    sym = "XAU/USDT" if ("XAU" in key or "GOLD" in key) else f"{key}/USDT"
     
     with st.spinner(f"Analyzing {key} using SMC + ICT + Elliott Wave..."):
         single_res = analyze_asset_smc(sym, timeframe, sl_mult, risk_reward)
